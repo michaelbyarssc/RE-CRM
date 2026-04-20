@@ -79,29 +79,33 @@ export function CalendarView({
     <div className="calendar-wrapper bg-card border rounded-lg p-2 sm:p-4">
       <style>{`
         .calendar-wrapper .fc {
-          --fc-border-color: hsl(var(--border));
-          --fc-button-bg-color: hsl(var(--primary));
-          --fc-button-border-color: hsl(var(--primary));
-          --fc-button-hover-bg-color: hsl(var(--primary) / 0.9);
-          --fc-button-hover-border-color: hsl(var(--primary) / 0.9);
-          --fc-button-active-bg-color: hsl(var(--primary) / 0.8);
-          --fc-button-active-border-color: hsl(var(--primary) / 0.8);
-          --fc-today-bg-color: hsl(var(--primary) / 0.05);
+          --fc-border-color: var(--border);
+          --fc-button-bg-color: var(--primary);
+          --fc-button-border-color: var(--primary);
+          --fc-button-hover-bg-color: oklch(0.70 0.14 85);
+          --fc-button-hover-border-color: oklch(0.70 0.14 85);
+          --fc-button-active-bg-color: oklch(0.65 0.13 85);
+          --fc-button-active-border-color: oklch(0.65 0.13 85);
+          --fc-today-bg-color: oklch(0.78 0.155 85 / 0.08);
           --fc-event-border-color: transparent;
           --fc-page-bg-color: transparent;
-          --fc-neutral-bg-color: hsl(var(--muted));
-          --fc-list-event-hover-bg-color: hsl(var(--accent));
+          --fc-neutral-bg-color: var(--muted);
+          --fc-list-event-hover-bg-color: var(--accent);
+          --fc-button-text-color: var(--primary-foreground);
           font-family: inherit;
+          color: var(--foreground);
         }
         .calendar-wrapper .fc .fc-toolbar-title {
           font-size: 1.15rem;
           font-weight: 600;
+          color: oklch(0.78 0.155 85);
         }
         .calendar-wrapper .fc .fc-button {
           font-size: 0.8rem;
           padding: 0.35em 0.65em;
           border-radius: 6px;
           font-weight: 500;
+          color: var(--primary-foreground);
         }
         .calendar-wrapper .fc .fc-button-group .fc-button {
           border-radius: 0;
@@ -115,7 +119,7 @@ export function CalendarView({
         .calendar-wrapper .fc .fc-daygrid-day-number,
         .calendar-wrapper .fc .fc-col-header-cell-cushion {
           font-size: 0.8rem;
-          color: hsl(var(--foreground));
+          color: var(--foreground);
         }
         .calendar-wrapper .fc .fc-event {
           border-radius: 4px;
@@ -127,19 +131,20 @@ export function CalendarView({
           font-weight: 500;
         }
         .calendar-wrapper .fc .fc-daygrid-day.fc-day-today {
-          background: hsl(var(--primary) / 0.05);
+          background: oklch(0.78 0.155 85 / 0.08);
         }
         .calendar-wrapper .fc td, .calendar-wrapper .fc th {
-          border-color: hsl(var(--border));
+          border-color: var(--border);
         }
         .calendar-wrapper .fc .fc-scrollgrid {
-          border-color: hsl(var(--border));
+          border-color: var(--border);
         }
         .calendar-wrapper .fc .fc-list-day-cushion {
-          background: hsl(var(--muted));
+          background: var(--muted);
         }
         .calendar-wrapper .fc .fc-timegrid-slot-label {
           font-size: 0.7rem;
+          color: var(--muted-foreground);
         }
         @media (max-width: 640px) {
           .calendar-wrapper .fc .fc-toolbar {

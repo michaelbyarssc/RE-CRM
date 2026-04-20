@@ -59,7 +59,7 @@ export default function LoginPage() {
   return (
     <Card className="w-full max-w-md">
       <CardHeader className="text-center">
-        <CardTitle className="text-2xl font-bold">Deal Desk Pro</CardTitle>
+        <CardTitle className="text-2xl font-bold text-gold">Deal Desk Pro</CardTitle>
         <CardDescription>
           {isSignUp
             ? "Create an account to get started"
@@ -93,13 +93,13 @@ export default function LoginPage() {
           </div>
 
           {error && (
-            <div className="text-sm text-red-500 bg-red-50 p-3 rounded-md">
+            <div className="text-sm text-red-400 bg-red-950/50 border border-red-900/50 p-3 rounded-md">
               {error}
             </div>
           )}
 
           {message && (
-            <div className="text-sm text-green-600 bg-green-50 p-3 rounded-md">
+            <div className="text-sm text-green-400 bg-green-950/50 border border-green-900/50 p-3 rounded-md">
               {message}
             </div>
           )}

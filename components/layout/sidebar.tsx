@@ -59,9 +59,9 @@ function SidebarContent({
 }) {
   return (
     <>
-      <div className="p-6 border-b">
-        <h1 className="text-xl font-bold tracking-tight">Deal Desk Pro</h1>
-        <p className="text-xs text-muted-foreground mt-1">
+      <div className="p-6 border-b border-sidebar-border">
+        <h1 className="text-xl font-bold tracking-tight text-gold">Deal Desk Pro</h1>
+        <p className="text-xs text-gold-muted mt-1">
           Wholesale Deal Machine
         </p>
       </div>
@@ -157,7 +157,7 @@ export function Sidebar() {
             />
           </SheetContent>
         </Sheet>
-        <h1 className="text-lg font-bold tracking-tight">Deal Desk Pro</h1>
+        <h1 className="text-lg font-bold tracking-tight text-gold">Deal Desk Pro</h1>
       </div>
 
       {/* Desktop sidebar */}

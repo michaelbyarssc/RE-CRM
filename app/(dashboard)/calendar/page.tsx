@@ -210,7 +210,7 @@ export default function CalendarPage() {
                 : "text-muted-foreground hover:bg-accent"
             }`}
           >
-            <span className={`w-2 h-2 rounded-full ${typeFilter === t.value ? "bg-white" : t.color}`} />
+            <span className={`w-2 h-2 rounded-full ${typeFilter === t.value ? "bg-primary-foreground" : t.color}`} />
             {t.label}
           </button>
         ))}
