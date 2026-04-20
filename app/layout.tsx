@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { Sidebar } from "@/components/layout/sidebar";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -16,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "RE CRM - Real Estate Wholesaling",
+  title: "Deal Desk Pro",
   description: "CRM for real estate wholesalers",
 };
 
@@ -30,12 +29,9 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="h-full flex">
+      <body className="h-full">
         <TooltipProvider>
-          <Sidebar />
-          <main className="flex-1 overflow-auto">
-            <div className="p-6">{children}</div>
-          </main>
+          {children}
           <Toaster />
         </TooltipProvider>
       </body>

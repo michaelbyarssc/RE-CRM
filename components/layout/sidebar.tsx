@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import {
   Users,
   Upload,
@@ -12,8 +13,11 @@ import {
   Kanban,
   Search,
   UserCheck,
+  LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { Button } from "@/components/ui/button";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -29,12 +33,29 @@ const navItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const supabase = createSupabaseBrowserClient();
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      setUserEmail(user?.email ?? null);
+    });
+  }, [supabase]);
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    router.push("/login");
+    router.refresh();
+  };
 
   return (
     <aside className="w-64 border-r bg-card flex flex-col h-full">
       <div className="p-6 border-b">
-        <h1 className="text-xl font-bold tracking-tight">RE CRM</h1>
-        <p className="text-xs text-muted-foreground mt-1">Wholesale Deal Machine</p>
+        <h1 className="text-xl font-bold tracking-tight">Deal Desk Pro</h1>
+        <p className="text-xs text-muted-foreground mt-1">
+          Wholesale Deal Machine
+        </p>
       </div>
       <nav className="flex-1 p-3 space-y-1">
         {navItems.map((item) => {
@@ -58,6 +79,24 @@ export function Sidebar() {
           );
         })}
       </nav>
+      {userEmail && (
+        <div className="p-3 border-t">
+          <div className="px-3 py-2">
+            <p className="text-xs text-muted-foreground truncate">
+              {userEmail}
+            </p>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start gap-3 text-muted-foreground hover:text-foreground"
+            onClick={handleSignOut}
+          >
+            <LogOut className="h-4 w-4" />
+            Sign Out
+          </Button>
+        </div>
+      )}
     </aside>
   );
 }
