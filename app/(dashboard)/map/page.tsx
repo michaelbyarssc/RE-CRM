@@ -110,7 +110,16 @@ export default function MapPage() {
           </Button>
           <Select value={statusFilter} onValueChange={(v) => v && setStatusFilter(v)}>
             <SelectTrigger className="w-full sm:w-[160px]">
-              <SelectValue placeholder="All Statuses" />
+              {(() => {
+                if (statusFilter === "all") return <span>All Statuses</span>;
+                const s = LEAD_STATUSES.find((s) => s.value === statusFilter);
+                return (
+                  <span className="flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full ${s?.color}`} />
+                    {s?.label ?? statusFilter}
+                  </span>
+                );
+              })()}
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Statuses</SelectItem>
@@ -133,81 +142,97 @@ export default function MapPage() {
         </div>
       </div>
 
-      <MapView
-        leads={leads}
-        statusFilter={statusFilter}
-        buyerZones={buyerZones}
-        showBuyerZones={showBuyerZones}
-      />
+      {/* Map + Buyer side panel layout */}
+      <div className={`flex flex-col ${showBuyerZones && buyerZones.length > 0 ? "lg:flex-row" : ""} gap-4`}>
+        {/* Map column */}
+        <div className={showBuyerZones && buyerZones.length > 0 ? "lg:flex-1 lg:min-w-0" : ""}>
+          <MapView
+            leads={leads}
+            statusFilter={statusFilter}
+            buyerZones={buyerZones}
+            showBuyerZones={showBuyerZones}
+          />
 
-      {/* Status legend */}
-      <div className="flex gap-4 mt-3 flex-wrap">
-        {LEAD_STATUSES.map((s) => (
-          <div key={s.value} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span className={`w-3 h-3 rounded-full ${s.color}`} />
-            {s.label}
-          </div>
-        ))}
-      </div>
-
-      {/* Buyer list panel - shows when Buyer Zones ON */}
-      {showBuyerZones && buyerZones.length > 0 && (
-        <div className="mt-4">
-          <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
-            <UserCheck className="h-4 w-4" />
-            Buyers on Map ({buyerZones.length})
-          </h2>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {buyerZones.map((buyer, i) => {
-              const color = BUYER_COLORS[i % BUYER_COLORS.length];
-              return (
-                <Card key={buyer.id} className="overflow-hidden">
-                  <div className="h-1.5" style={{ backgroundColor: color }} />
-                  <CardContent className="p-3">
-                    <div className="flex items-start gap-2">
-                      <span
-                        className="w-4 h-4 rounded-full shrink-0 mt-0.5 border-2 border-white"
-                        style={{ backgroundColor: color, boxShadow: `0 0 0 1px ${color}40` }}
-                      />
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-sm truncate">{buyer.name}</p>
-                        {buyer.company && (
-                          <p className="text-xs text-muted-foreground truncate">{buyer.company}</p>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="mt-2 space-y-1">
-                      <p className="text-xs flex items-center gap-1.5">
-                        <MapPin className="h-3 w-3 text-muted-foreground shrink-0" />
-                        <span className="truncate">{buyer.areas}</span>
-                      </p>
-                      {buyer.priceRange && (
-                        <p className="text-xs flex items-center gap-1.5">
-                          <DollarSign className="h-3 w-3 text-muted-foreground shrink-0" />
-                          {buyer.priceRange}
-                        </p>
-                      )}
-                      {buyer.phone && (
-                        <a href={`tel:${buyer.phone}`} className="text-xs flex items-center gap-1.5 hover:underline">
-                          <Phone className="h-3 w-3 text-muted-foreground shrink-0" />
-                          {buyer.phone}
-                        </a>
-                      )}
-                      {buyer.email && (
-                        <a href={`mailto:${buyer.email}`} className="text-xs flex items-center gap-1.5 hover:underline truncate">
-                          <Mail className="h-3 w-3 text-muted-foreground shrink-0" />
-                          <span className="truncate">{buyer.email}</span>
-                        </a>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
+          {/* Status legend */}
+          <div className="flex gap-4 mt-3 flex-wrap">
+            {LEAD_STATUSES.map((s) => (
+              <div key={s.value} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <span className={`w-3 h-3 rounded-full ${s.color}`} />
+                {s.label}
+              </div>
+            ))}
           </div>
         </div>
-      )}
+
+        {/* Buyer list side panel — visible when Buyer Zones ON */}
+        {showBuyerZones && buyerZones.length > 0 && (
+          <div className="lg:w-80 lg:shrink-0">
+            <div className="border rounded-lg bg-card lg:sticky lg:top-4">
+              <div className="p-3 border-b flex items-center justify-between">
+                <h2 className="text-sm font-semibold flex items-center gap-2">
+                  <UserCheck className="h-4 w-4" />
+                  Buyers ({buyerZones.length})
+                </h2>
+              </div>
+              <div className="divide-y lg:max-h-[calc(100vh-220px)] lg:overflow-y-auto">
+                {buyerZones.map((buyer, i) => {
+                  const color = BUYER_COLORS[i % BUYER_COLORS.length];
+                  return (
+                    <div key={buyer.id} className="p-3">
+                      <div className="flex items-start gap-2.5">
+                        <span
+                          className="w-4 h-4 rounded-full shrink-0 mt-0.5"
+                          style={{ backgroundColor: color, boxShadow: `0 0 0 2px white, 0 0 0 3px ${color}50` }}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-sm">{buyer.name}</p>
+                          {buyer.company && (
+                            <p className="text-xs text-muted-foreground">{buyer.company}</p>
+                          )}
+
+                          <div className="mt-1.5 space-y-1">
+                            <p className="text-xs flex items-center gap-1.5">
+                              <MapPin className="h-3 w-3 text-muted-foreground shrink-0" />
+                              <span className="break-words">{buyer.areas}</span>
+                            </p>
+                            {buyer.priceRange && (
+                              <p className="text-xs flex items-center gap-1.5">
+                                <DollarSign className="h-3 w-3 text-muted-foreground shrink-0" />
+                                {buyer.priceRange}
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="flex flex-wrap gap-2 mt-2">
+                            {buyer.phone && (
+                              <a
+                                href={`tel:${buyer.phone}`}
+                                className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-muted hover:bg-accent transition-colors"
+                              >
+                                <Phone className="h-3 w-3" />
+                                {buyer.phone}
+                              </a>
+                            )}
+                            {buyer.email && (
+                              <a
+                                href={`mailto:${buyer.email}`}
+                                className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-muted hover:bg-accent transition-colors truncate max-w-full"
+                              >
+                                <Mail className="h-3 w-3 shrink-0" />
+                                <span className="truncate">{buyer.email}</span>
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
 
       {buyerZones.length === 0 && (
         <p className="text-xs text-muted-foreground mt-3">

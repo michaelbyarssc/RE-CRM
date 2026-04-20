@@ -113,7 +113,7 @@ export default function DialerPage() {
         <div className="flex flex-wrap items-center gap-3">
           <Select value={statusFilter} onValueChange={(v) => v && setStatusFilter(v)}>
             <SelectTrigger className="w-[140px]">
-              <SelectValue />
+              {statusFilter === "new" ? "New" : statusFilter === "contacted" ? "Contacted" : "In Process"}
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="new">New</SelectItem>

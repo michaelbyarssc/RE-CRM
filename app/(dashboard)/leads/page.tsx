@@ -303,7 +303,16 @@ export default function LeadsPage() {
           }}
         >
           <SelectTrigger className="w-full sm:w-[160px]">
-            <SelectValue placeholder="All Statuses" />
+            {(() => {
+              if (statusFilter === "all") return <span>All Statuses</span>;
+              const s = LEAD_STATUSES.find((s) => s.value === statusFilter);
+              return (
+                <span className="flex items-center gap-2">
+                  <span className={`w-2 h-2 rounded-full ${s?.color}`} />
+                  {s?.label ?? statusFilter}
+                </span>
+              );
+            })()}
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Statuses</SelectItem>
