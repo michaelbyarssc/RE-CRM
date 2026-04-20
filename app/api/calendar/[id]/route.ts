@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEventById, updateEvent, deleteEvent } from "@/lib/actions/calendar";
+import { autoSyncEvent, autoDeleteFromGoogle } from "@/lib/google-calendar";
 
 export async function GET(
   req: NextRequest,
@@ -18,6 +19,10 @@ export async function PATCH(
   const { id } = await params;
   const body = await req.json();
   const event = await updateEvent(Number(id), body);
+
+  // Immediately push update to Google Calendar
+  if (event) autoSyncEvent(event);
+
   return NextResponse.json(event);
 }
 
@@ -26,6 +31,13 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+
+  // Get event first to check for Google ID before deleting
+  const event = await getEventById(Number(id));
   await deleteEvent(Number(id));
+
+  // Immediately delete from Google Calendar
+  if (event) autoDeleteFromGoogle(event.googleEventId);
+
   return NextResponse.json({ ok: true });
 }

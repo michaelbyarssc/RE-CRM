@@ -240,6 +240,54 @@ export async function deleteEventFromGoogle(
   return res.ok;
 }
 
+/**
+ * Auto-sync a single CRM event to Google Calendar immediately.
+ * Call this after creating or updating an event.
+ * Silently no-ops if Google Calendar is not connected.
+ */
+export async function autoSyncEvent(crmEvent: {
+  id: number;
+  title: string;
+  description?: string | null;
+  location?: string | null;
+  startAt: string;
+  endAt?: string | null;
+  allDay?: number | null;
+  status?: string;
+  googleEventId?: string | null;
+}) {
+  try {
+    const token = await getValidToken();
+    if (!token) return; // Not connected — skip silently
+
+    const { accessToken, tokenRow } = token;
+    const calendarId = tokenRow.calendarId || "primary";
+    await pushEventToGoogle(accessToken, calendarId, crmEvent);
+  } catch (err) {
+    console.error("Auto-sync to Google failed:", err);
+    // Don't throw — sync failure shouldn't break the CRM operation
+  }
+}
+
+/**
+ * Auto-delete a CRM event from Google Calendar immediately.
+ * Call this after deleting an event from the CRM.
+ * Silently no-ops if Google Calendar is not connected or event wasn't synced.
+ */
+export async function autoDeleteFromGoogle(googleEventId: string | null | undefined) {
+  if (!googleEventId) return;
+  try {
+    const token = await getValidToken();
+    if (!token) return;
+
+    const { accessToken, tokenRow } = token;
+    const calendarId = tokenRow.calendarId || "primary";
+    await deleteEventFromGoogle(accessToken, calendarId, googleEventId);
+  } catch (err) {
+    console.error("Auto-delete from Google failed:", err);
+  }
+}
+
 export async function pullEventsFromGoogle(
   accessToken: string,
   calendarId: string,

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEvents, createEvent } from "@/lib/actions/calendar";
+import { autoSyncEvent } from "@/lib/google-calendar";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -30,5 +31,9 @@ export async function POST(req: NextRequest) {
   }
 
   const event = await createEvent(body);
+
+  // Immediately push to Google Calendar
+  autoSyncEvent(event);
+
   return NextResponse.json(event);
 }

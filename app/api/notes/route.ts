@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getNotes, createNote, deleteNote } from "@/lib/actions/notes";
 import { createEvent } from "@/lib/actions/calendar";
 import { parseNoteForEvent } from "@/lib/parse-note-events";
+import { autoSyncEvent } from "@/lib/google-calendar";
 import { db } from "@/lib/db";
 import { leads } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
@@ -40,6 +41,9 @@ export async function POST(req: NextRequest) {
           location: parsed.location,
           leadId: body.leadId,
         });
+
+        // Immediately push to Google Calendar
+        if (calendarEvent) autoSyncEvent(calendarEvent);
       }
     }
   } catch (err) {
