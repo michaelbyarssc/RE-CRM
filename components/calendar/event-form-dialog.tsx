@@ -76,16 +76,21 @@ interface EventFormDialogProps {
   onOpenChange?: (open: boolean) => void;
 }
 
-function toLocalDatetime(iso: string) {
-  if (!iso) return "";
-  const d = new Date(iso);
+function toLocalDatetime(dateStr: string) {
+  if (!dateStr) return "";
+  // If already a local time string (no Z or offset), just take the first 16 chars
+  if (!dateStr.endsWith("Z") && !dateStr.match(/[+-]\d{2}:\d{2}$/)) {
+    return dateStr.slice(0, 16);
+  }
+  // Legacy: parse any remaining UTC strings for backwards compatibility
+  const d = new Date(dateStr);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function toLocalDate(iso: string) {
-  if (!iso) return "";
-  return iso.slice(0, 10);
+function toLocalDate(dateStr: string) {
+  if (!dateStr) return "";
+  return dateStr.slice(0, 10);
 }
 
 export function EventFormDialog({
@@ -192,13 +197,14 @@ export function EventFormDialog({
 
     setSaving(true);
     try {
+      // Store as local time strings — no UTC conversion
       const startAt = form.allDay
-        ? new Date(form.startAt + "T00:00:00").toISOString()
-        : new Date(form.startAt).toISOString();
+        ? form.startAt + "T00:00:00"
+        : form.startAt + (form.startAt.length === 16 ? ":00" : "");
       const endAt = form.endAt
         ? form.allDay
-          ? new Date(form.endAt + "T23:59:59").toISOString()
-          : new Date(form.endAt).toISOString()
+          ? form.endAt + "T23:59:00"
+          : form.endAt + (form.endAt.length === 16 ? ":00" : "")
         : null;
 
       const payload = {

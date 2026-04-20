@@ -72,18 +72,22 @@ export async function POST(req: NextRequest) {
           const endAt = gEvent.end?.dateTime || gEvent.end?.date;
           const allDay = !gEvent.start?.dateTime;
 
+          // Extract local time from Google's datetime (strip timezone offset)
+          // "2026-04-20T18:00:00-04:00" → "2026-04-20T18:00:00"
+          const toLocal = (dt: string) => dt.slice(0, 19);
+
           await db
             .update(calendarEvents)
             .set({
               title: gEvent.summary || existing.title,
               description: gEvent.description || null,
               location: gEvent.location || null,
-              startAt: startAt ? new Date(startAt).toISOString() : existing.startAt,
-              endAt: endAt ? new Date(endAt).toISOString() : null,
+              startAt: startAt ? toLocal(startAt) : existing.startAt,
+              endAt: endAt ? toLocal(endAt) : null,
               allDay: allDay ? 1 : 0,
               status: gEvent.status === "cancelled" ? "cancelled" : existing.status,
               syncStatus: "synced",
-              updatedAt: new Date().toISOString(),
+              updatedAt: new Date().toLocaleString("sv-SE").replace(" ", "T"),
             })
             .where(eq(calendarEvents.id, existing.id));
           pulled++;
@@ -98,12 +102,15 @@ export async function POST(req: NextRequest) {
 
         if (!startAt) continue;
 
+        // Extract local time from Google's datetime (strip timezone offset)
+        const toLocal = (dt: string) => dt.slice(0, 19);
+
         await db.insert(calendarEvents).values({
           title: gEvent.summary || "Untitled",
           description: gEvent.description || null,
           eventType: "custom",
-          startAt: new Date(startAt).toISOString(),
-          endAt: endAt ? new Date(endAt).toISOString() : null,
+          startAt: toLocal(startAt),
+          endAt: endAt ? toLocal(endAt) : null,
           allDay: allDay ? 1 : 0,
           location: gEvent.location || null,
           status: "scheduled",
@@ -119,12 +126,13 @@ export async function POST(req: NextRequest) {
     errors++;
   }
 
-  // Update last sync time
+  // Update last sync time (keep as ISO for Google API compatibility)
+  const nowISO = new Date().toISOString();
   await db
     .update(googleCalendarTokens)
     .set({
-      lastSyncAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      lastSyncAt: nowISO,
+      updatedAt: nowISO,
     })
     .where(eq(googleCalendarTokens.id, tokenRow.id));
 

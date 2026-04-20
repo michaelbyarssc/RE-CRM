@@ -145,7 +145,7 @@ export default function LeadDetailPage({
     const res = await fetch("/api/notes", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ leadId: Number(id), content: newNote, timezoneOffset: new Date().getTimezoneOffset() }),
+      body: JSON.stringify({ leadId: Number(id), content: newNote, localNow: new Date().toLocaleString("sv-SE", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }).replace(" ", "T") }),
     });
     const data = await res.json();
     setNewNote("");

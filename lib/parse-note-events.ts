@@ -1,12 +1,16 @@
 /**
  * Parses a note for date/time references and addresses to auto-create calendar events.
  * Returns event details if a schedulable action is detected, null otherwise.
+ *
+ * ALL dates/times are in the user's local time — no UTC conversion.
+ * The client sends its current local time as `localNow` so the server
+ * can do date arithmetic without timezone concerns.
  */
 
 interface ParsedEvent {
   title: string;
   eventType: "appointment" | "callback" | "follow_up";
-  startAt: string; // ISO string
+  startAt: string; // Local time string: "2026-04-20T18:00:00"
   location?: string;
 }
 
@@ -64,6 +68,13 @@ const MEETING_PATTERNS = [
   /view\s*(?:the\s+)?(?:property|house|home)/i,
 ];
 
+const pad = (n: number) => String(n).padStart(2, "0");
+
+/** Format a Date as a local time string with no timezone suffix */
+function formatLocal(d: Date): string {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00`;
+}
+
 function parseTime(text: string): { hours: number; minutes: number } | null {
   // Match: 2pm, 2:30pm, 2:30 pm, 14:00, 2 PM, etc.
   const timeMatch = text.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)/i);
@@ -100,7 +111,7 @@ function parseTime(text: string): { hours: number; minutes: number } | null {
   return null;
 }
 
-function parseDate(text: string, referenceDate: Date = new Date()): Date | null {
+function parseDate(text: string, referenceDate: Date): Date | null {
   const lower = text.toLowerCase();
 
   // "today"
@@ -132,14 +143,14 @@ function parseDate(text: string, referenceDate: Date = new Date()): Date | null 
   const inDays = lower.match(/\bin\s+(\d+)\s+day/i);
   if (inDays) {
     const d = new Date(referenceDate);
-    d.setUTCDate(d.getUTCDate() + parseInt(inDays[1]));
+    d.setDate(d.getDate() + parseInt(inDays[1]));
     return d;
   }
 
   const inHours = lower.match(/\bin\s+(\d+)\s+hour/i);
   if (inHours) {
     const d = new Date(referenceDate);
-    d.setUTCHours(d.getUTCHours() + parseInt(inHours[1]));
+    d.setHours(d.getHours() + parseInt(inHours[1]));
     return d;
   }
 
@@ -150,9 +161,9 @@ function parseDate(text: string, referenceDate: Date = new Date()): Date | null 
     if (match) {
       const day = parseInt(match[1]);
       const d = new Date(referenceDate);
-      d.setUTCMonth(monthNum, day);
+      d.setMonth(monthNum, day);
       // If the date is in the past, push to next year
-      if (d < referenceDate) d.setUTCFullYear(d.getUTCFullYear() + 1);
+      if (d < referenceDate) d.setFullYear(d.getFullYear() + 1);
       return d;
     }
   }
@@ -162,10 +173,10 @@ function parseDate(text: string, referenceDate: Date = new Date()): Date | null 
   if (slashDate) {
     const month = parseInt(slashDate[1]) - 1;
     const day = parseInt(slashDate[2]);
-    let year = slashDate[3] ? parseInt(slashDate[3]) : referenceDate.getUTCFullYear();
+    let year = slashDate[3] ? parseInt(slashDate[3]) : referenceDate.getFullYear();
     if (year < 100) year += 2000;
-    const d = new Date(Date.UTC(year, month, day));
-    if (d < referenceDate && !slashDate[3]) d.setUTCFullYear(d.getUTCFullYear() + 1);
+    const d = new Date(year, month, day);
+    if (d < referenceDate && !slashDate[3]) d.setFullYear(d.getFullYear() + 1);
     return d;
   }
 
@@ -190,42 +201,42 @@ function parseAddress(text: string): string | null {
   return null;
 }
 
+/**
+ * Parse a note for calendar event data.
+ * @param noteContent The note text
+ * @param leadName Name of the lead (for event title)
+ * @param localNow The user's current local time as "YYYY-MM-DDTHH:mm:ss" (no timezone)
+ */
 export function parseNoteForEvent(
   noteContent: string,
   leadName: string,
-  timezoneOffsetMinutes?: number
+  localNow?: string
 ): ParsedEvent | null {
   const text = noteContent.trim();
 
+  // Reference date: user's local time (passed from client to avoid timezone issues)
+  // On the server (UTC), new Date("2026-04-20T17:25:00") treats it as local time.
+  // Since server local = UTC, the Date methods return the numeric values we need.
+  const now = localNow ? new Date(localNow) : new Date();
+
   // Must have some date/time reference
-  const parsedDate = parseDate(text);
+  const parsedDate = parseDate(text, now);
   const parsedTime = parseTime(text);
 
   // No temporal reference at all — skip
   if (!parsedDate && !parsedTime) return null;
 
   // Build the datetime
-  // Use timezone offset from client to correctly interpret user's local time
-  // timezoneOffsetMinutes: minutes behind UTC (e.g. EDT = 240, PDT = 420)
-  const tzOffset = timezoneOffsetMinutes ?? new Date().getTimezoneOffset();
-  const eventDate = parsedDate || new Date();
-
+  const eventDate = parsedDate || new Date(now);
   if (parsedTime) {
-    // Set time in UTC, adjusted for user's timezone
-    // User says "6 pm" meaning 6 PM local → convert to UTC
-    const utcHours = parsedTime.hours + Math.floor(tzOffset / 60);
-    const utcMinutes = parsedTime.minutes + (tzOffset % 60);
-    eventDate.setUTCHours(utcHours, utcMinutes, 0, 0);
+    eventDate.setHours(parsedTime.hours, parsedTime.minutes, 0, 0);
   } else {
-    // Default to 9 AM local time if only a date is mentioned
-    const utcHours = 9 + Math.floor(tzOffset / 60);
-    const utcMinutes = tzOffset % 60;
-    eventDate.setUTCHours(utcHours, utcMinutes, 0, 0);
+    // Default to 9 AM if only a date is mentioned
+    eventDate.setHours(9, 0, 0, 0);
   }
 
   // Don't create events for dates clearly in the past (more than 1 hour ago)
-  // Use a buffer to account for edge cases and processing delay
-  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+  const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
   if (eventDate < oneHourAgo) {
     // If a specific date was given and it's clearly past, skip
     if (parsedDate) return null;
@@ -257,7 +268,7 @@ export function parseNoteForEvent(
   const result: ParsedEvent = {
     title,
     eventType,
-    startAt: eventDate.toISOString(),
+    startAt: formatLocal(eventDate),
   };
 
   if (address) {

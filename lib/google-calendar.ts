@@ -148,12 +148,14 @@ export function crmEventToGcalEvent(event: {
   if (event.allDay) {
     const startDate = event.startAt.slice(0, 10);
     const endDate = event.endAt ? event.endAt.slice(0, 10) : startDate;
-    // Google Calendar all-day end is exclusive
-    const endPlusOne = new Date(endDate);
-    endPlusOne.setDate(endPlusOne.getDate() + 1);
+    // Google Calendar all-day end is exclusive — add 1 day
+    const endParts = endDate.split("-").map(Number);
+    const endPlusOne = new Date(endParts[0], endParts[1] - 1, endParts[2] + 1);
+    const pad = (n: number) => String(n).padStart(2, "0");
     gcalEvent.start = { date: startDate };
-    gcalEvent.end = { date: endPlusOne.toISOString().slice(0, 10) };
+    gcalEvent.end = { date: `${endPlusOne.getFullYear()}-${pad(endPlusOne.getMonth() + 1)}-${pad(endPlusOne.getDate())}` };
   } else {
+    // Send local time — Google will use the calendar's default timezone
     gcalEvent.start = { dateTime: event.startAt };
     gcalEvent.end = { dateTime: event.endAt || event.startAt };
   }

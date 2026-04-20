@@ -10,10 +10,10 @@ export async function getEvents(params: {
   type?: string;
   status?: string;
 }) {
-  // Normalize date range to full ISO strings for consistent comparison
-  // FullCalendar may send date-only strings ("2026-03-30") or full ISO with offset
-  const normalizedStart = new Date(params.start).toISOString();
-  const normalizedEnd = new Date(params.end).toISOString();
+  // Normalize date range to consistent local time strings for comparison
+  // FullCalendar may send date-only strings ("2026-03-30") or datetime strings
+  const normalizedStart = params.start.length === 10 ? params.start + "T00:00:00" : params.start.slice(0, 19);
+  const normalizedEnd = params.end.length === 10 ? params.end + "T23:59:59" : params.end.slice(0, 19);
 
   // Include events that:
   // 1. Start within the visible range, OR
@@ -165,7 +165,7 @@ export async function updateEvent(
   }>
 ) {
   const updateData: Record<string, unknown> = {
-    updatedAt: new Date().toISOString(),
+    updatedAt: new Date().toLocaleString("sv-SE").replace(" ", "T"),
   };
 
   if (data.title !== undefined) updateData.title = data.title;
@@ -195,7 +195,12 @@ export async function deleteEvent(id: number) {
 }
 
 export async function getUpcomingEvents(limit = 5) {
-  const now = new Date().toISOString();
+  // Use a date far enough in the past to catch all upcoming events
+  // Since events are stored in local time and server is UTC,
+  // subtract 24h to ensure we don't miss any
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const d = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const now = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00`;
 
   const events = await db
     .select({

@@ -283,10 +283,16 @@ export default function CalendarPage() {
 
               {/* Location */}
               {selectedEvent.location && (
-                <div className="flex items-center gap-2 text-sm">
-                  <MapPin className="h-4 w-4 text-muted-foreground" />
+                <a
+                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedEvent.location)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 text-sm text-primary hover:underline"
+                >
+                  <MapPin className="h-4 w-4" />
                   <span>{selectedEvent.location}</span>
-                </div>
+                  <ExternalLink className="h-3 w-3" />
+                </a>
               )}
 
               {/* Description */}
@@ -305,13 +311,20 @@ export default function CalendarPage() {
                   <p className="font-medium text-sm">
                     {[selectedEvent.leadFirstName, selectedEvent.leadLastName].filter(Boolean).join(" ") || "Unknown"}
                   </p>
-                  <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                      [selectedEvent.leadAddress, selectedEvent.leadCity, selectedEvent.leadState, selectedEvent.leadZip].filter(Boolean).join(", ")
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-primary mt-0.5 flex items-center gap-1 hover:underline"
+                  >
                     <MapPin className="h-3 w-3" />
                     {selectedEvent.leadAddress}
                     {selectedEvent.leadCity && `, ${selectedEvent.leadCity}`}
                     {selectedEvent.leadState && ` ${selectedEvent.leadState}`}
                     {selectedEvent.leadZip && ` ${selectedEvent.leadZip}`}
-                  </p>
+                  </a>
                   <div className="flex flex-wrap gap-2 mt-2">
                     {selectedEvent.leadPhone && (
                       <a href={`tel:${selectedEvent.leadPhone}`} className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-muted hover:bg-accent transition-colors">
