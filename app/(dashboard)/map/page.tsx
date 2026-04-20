@@ -84,7 +84,7 @@ export default function MapPage() {
 
   return (
     <div>
-      <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-center sm:justify-between relative z-[1000]">
+      <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-center sm:justify-between relative">
         <div>
           <h1 className="text-2xl font-bold">Map View</h1>
           <p className="text-sm text-muted-foreground">
