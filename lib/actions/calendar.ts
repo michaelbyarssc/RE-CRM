@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db";
 import { calendarEvents, leads, buyers } from "@/lib/db/schema";
-import { eq, and, gte, lte, desc, sql } from "drizzle-orm";
+import { eq, and, gte, lte, lt, or, desc, sql } from "drizzle-orm";
 
 export async function getEvents(params: {
   start: string;
@@ -10,9 +10,21 @@ export async function getEvents(params: {
   type?: string;
   status?: string;
 }) {
+  // Normalize date range to full ISO strings for consistent comparison
+  // FullCalendar may send date-only strings ("2026-03-30") or full ISO with offset
+  const normalizedStart = new Date(params.start).toISOString();
+  const normalizedEnd = new Date(params.end).toISOString();
+
+  // Include events that:
+  // 1. Start within the visible range, OR
+  // 2. Span into the visible range (started before but end after range start)
   const conditions = [
-    gte(calendarEvents.startAt, params.start),
-    lte(calendarEvents.startAt, params.end),
+    or(
+      // Event starts within range (end is exclusive from FullCalendar)
+      and(gte(calendarEvents.startAt, normalizedStart), lt(calendarEvents.startAt, normalizedEnd)),
+      // Multi-day event spans into range
+      and(lte(calendarEvents.startAt, normalizedStart), gte(calendarEvents.endAt, normalizedStart))
+    ),
   ];
 
   if (params.type) {
