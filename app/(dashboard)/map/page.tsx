@@ -53,7 +53,7 @@ export default function MapPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold">Map View</h1>
           <p className="text-sm text-muted-foreground">
@@ -62,9 +62,9 @@ export default function MapPage() {
             {ungeocoded > 0 && ` (${ungeocoded} need geocoding)`}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <Select value={statusFilter} onValueChange={(v) => v && setStatusFilter(v)}>
-            <SelectTrigger className="w-[160px]">
+            <SelectTrigger className="w-full sm:w-[160px]">
               <SelectValue placeholder="All Statuses" />
             </SelectTrigger>
             <SelectContent>

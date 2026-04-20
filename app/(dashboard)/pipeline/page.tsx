@@ -92,7 +92,7 @@ export default function PipelinePage() {
           return (
             <div
               key={status.value}
-              className={`flex-shrink-0 w-72 rounded-lg border ${
+              className={`flex-shrink-0 w-60 md:w-72 rounded-lg border ${
                 isOver ? "border-primary bg-primary/5" : "bg-muted/30"
               }`}
               onDragOver={(e) => handleDragOver(e, status.value)}

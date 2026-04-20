@@ -31,10 +31,14 @@ export function LeadStatusSelect({
   status: string;
   onStatusChange: (status: string) => void;
 }) {
+  const currentStatus = LEAD_STATUSES.find((s) => s.value === status);
   return (
     <Select value={status} onValueChange={(v) => v && onStatusChange(v)}>
       <SelectTrigger className="w-[140px] h-8 text-xs">
-        <SelectValue />
+        <span className="flex items-center gap-2">
+          <span className={`w-2 h-2 rounded-full ${currentStatus?.color ?? ""}`} />
+          {currentStatus?.label ?? status}
+        </span>
       </SelectTrigger>
       <SelectContent>
         {LEAD_STATUSES.map((s) => (

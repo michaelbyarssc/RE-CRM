@@ -232,6 +232,7 @@ export default function LeadsPage() {
     {
       accessorKey: "tags",
       header: "Tags",
+      meta: { className: "hidden md:table-cell" },
       cell: ({ row }) => (
         <div className="flex gap-1 flex-wrap">
           {row.original.tags.map((tag) => (
@@ -253,6 +254,7 @@ export default function LeadsPage() {
     {
       accessorKey: "createdAt",
       header: "Added",
+      meta: { className: "hidden md:table-cell" },
       cell: ({ row }) => (
         <span className="text-xs text-muted-foreground">
           {new Date(row.original.createdAt).toLocaleDateString()}
@@ -273,7 +275,7 @@ export default function LeadsPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col gap-3 mb-6 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl font-bold">Leads ({total})</h1>
         <div className="flex items-center gap-2">
           <AddLeadDialog onLeadCreated={fetchLeads} />
@@ -282,7 +284,7 @@ export default function LeadsPage() {
       </div>
 
       {/* Toolbar */}
-      <div className="flex items-center gap-3 mb-4">
+      <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-center">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
@@ -300,7 +302,7 @@ export default function LeadsPage() {
             setPage(1);
           }}
         >
-          <SelectTrigger className="w-[160px]">
+          <SelectTrigger className="w-full sm:w-[160px]">
             <SelectValue placeholder="All Statuses" />
           </SelectTrigger>
           <SelectContent>
@@ -393,8 +395,85 @@ export default function LeadsPage() {
         )}
       </div>
 
-      {/* Table */}
-      <div className="border rounded-md">
+      {/* Mobile Card View */}
+      <div className="md:hidden space-y-3">
+        {loading ? (
+          <div className="text-center py-8 text-muted-foreground">Loading...</div>
+        ) : leads.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">
+            <p>No leads found</p>
+            <p className="text-sm mt-1">
+              Add a lead manually or{" "}
+              <Button variant="link" className="p-0 h-auto" onClick={() => router.push("/leads/import")}>
+                import a CSV
+              </Button>
+            </p>
+          </div>
+        ) : (
+          leads.map((lead, idx) => {
+            const name = [lead.firstName, lead.lastName].filter(Boolean).join(" ") || "Unknown";
+            const isSelected = rowSelection[idx] === true;
+            return (
+              <div
+                key={lead.id}
+                className={`border rounded-lg p-3 space-y-2 ${isSelected ? "bg-primary/5 border-primary" : ""}`}
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Checkbox
+                      checked={isSelected}
+                      onCheckedChange={(value) => {
+                        setRowSelection((prev) => ({ ...prev, [idx]: !!value }));
+                      }}
+                    />
+                    <button
+                      onClick={() => router.push(`/leads/${lead.id}`)}
+                      className="font-medium hover:underline text-left truncate"
+                    >
+                      {name}
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <QuickNoteDialog leadId={lead.id} leadName={name} />
+                    <LeadStatusSelect
+                      status={lead.status}
+                      onStatusChange={(s) => handleStatusChange(lead.id, s)}
+                    />
+                  </div>
+                </div>
+                <div className="text-sm text-muted-foreground pl-6">
+                  <div>{lead.propertyAddress}</div>
+                  <div className="text-xs">
+                    {[lead.propertyCity, lead.propertyState, lead.propertyZip]
+                      .filter(Boolean)
+                      .join(", ")}
+                  </div>
+                </div>
+                <div className="flex items-center justify-between pl-6">
+                  <div>
+                    {lead.phone ? (
+                      <a href={`tel:${lead.phone}`} className="flex items-center gap-1 text-sm hover:underline">
+                        <Phone className="h-3 w-3" />
+                        {lead.phone}
+                      </a>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">No phone</span>
+                    )}
+                  </div>
+                  <div className="flex gap-1 flex-wrap">
+                    {lead.tags.map((tag) => (
+                      <TagBadge key={tag.id} name={tag.name} color={tag.color} />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* Desktop Table View */}
+      <div className="hidden md:block border rounded-md">
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (

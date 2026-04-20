@@ -218,9 +218,9 @@ export default function SkipTracePage() {
         <TabsContent value="export" className="mt-4">
           <Card className="mb-4">
             <CardHeader>
-              <CardTitle className="flex items-center justify-between">
+              <CardTitle className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <span>Select Leads to Export</span>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                   <Badge variant="outline">
                     {noPhoneLeads.length} leads without phone
                   </Badge>
@@ -247,7 +247,7 @@ export default function SkipTracePage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="border rounded-md">
+              <div className="border rounded-md overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>

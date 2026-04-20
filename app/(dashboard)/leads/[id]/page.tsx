@@ -195,15 +195,17 @@ export default function LeadDetailPage({
         Back to Leads
       </Button>
 
-      <div className="flex items-start justify-between mb-6">
+      <div className="flex flex-col gap-3 mb-6 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold">{name}</h1>
-          <p className="text-muted-foreground flex items-center gap-1">
-            <MapPin className="h-4 w-4" />
-            {lead.propertyAddress}
-            {lead.propertyCity && `, ${lead.propertyCity}`}
-            {lead.propertyState && `, ${lead.propertyState}`}
-            {lead.propertyZip && ` ${lead.propertyZip}`}
+          <p className="text-muted-foreground flex items-center gap-1 text-sm">
+            <MapPin className="h-4 w-4 shrink-0" />
+            <span className="break-words">
+              {lead.propertyAddress}
+              {lead.propertyCity && `, ${lead.propertyCity}`}
+              {lead.propertyState && `, ${lead.propertyState}`}
+              {lead.propertyZip && ` ${lead.propertyZip}`}
+            </span>
           </p>
         </div>
         <LeadStatusSelect
@@ -213,7 +215,7 @@ export default function LeadDetailPage({
       </div>
 
       {/* Quick contact */}
-      <div className="flex gap-3 mb-6">
+      <div className="flex flex-wrap gap-3 mb-6">
         {lead.phone && (
           <a href={`tel:${lead.phone}`}>
             <Button variant="outline" size="sm">
@@ -304,7 +306,7 @@ export default function LeadDetailPage({
               )}
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <Label>First Name</Label>
                   {editing ? (
@@ -362,7 +364,7 @@ export default function LeadDetailPage({
               <Separator className="my-4" />
 
               <h3 className="font-medium mb-3">Property Address</h3>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="col-span-2">
                   <Label>Address</Label>
                   {editing ? (
@@ -436,7 +438,7 @@ export default function LeadDetailPage({
               <Separator className="my-4" />
 
               <h3 className="font-medium mb-3">Mailing Address</h3>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="col-span-2">
                   <Label>Address</Label>
                   {editing ? (
