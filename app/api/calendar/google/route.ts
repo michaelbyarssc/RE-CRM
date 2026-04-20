@@ -8,6 +8,19 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const action = searchParams.get("action");
 
+  if (action === "debug") {
+    return NextResponse.json({
+      clientIdSet: !!process.env.GOOGLE_CLIENT_ID,
+      clientIdPrefix: process.env.GOOGLE_CLIENT_ID?.slice(0, 10) + "...",
+      secretSet: !!process.env.GOOGLE_CLIENT_SECRET,
+      appUrl: process.env.NEXT_PUBLIC_APP_URL || "(not set)",
+      redirectUri: process.env.NEXT_PUBLIC_APP_URL
+        ? `${process.env.NEXT_PUBLIC_APP_URL}/api/calendar/google/callback`
+        : "http://localhost:3001/api/calendar/google/callback",
+      authUrl: getGoogleAuthUrl(),
+    });
+  }
+
   if (action === "connect") {
     // Redirect to Google OAuth
     if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
