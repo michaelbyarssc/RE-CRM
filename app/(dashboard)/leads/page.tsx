@@ -51,6 +51,7 @@ import {
   Trash2,
   Tag,
   Phone,
+  Plus,
 } from "lucide-react";
 
 interface LeadTag {
@@ -153,6 +154,26 @@ export default function LeadsPage() {
     fetchLeads();
   };
 
+  const handleAddTag = async (leadId: number, tagId: number) => {
+    await fetch(`/api/leads/${leadId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "addTag", tagId }),
+    });
+    toast.success("Tag added");
+    fetchLeads();
+  };
+
+  const handleRemoveTag = async (leadId: number, tagId: number) => {
+    await fetch(`/api/leads/${leadId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "removeTag", tagId }),
+    });
+    toast.success("Tag removed");
+    fetchLeads();
+  };
+
   const columns: ColumnDef<Lead>[] = [
     {
       id: "select",
@@ -233,13 +254,46 @@ export default function LeadsPage() {
       accessorKey: "tags",
       header: "Tags",
       meta: { className: "hidden md:table-cell" },
-      cell: ({ row }) => (
-        <div className="flex gap-1 flex-wrap">
-          {row.original.tags.map((tag) => (
-            <TagBadge key={tag.id} name={tag.name} color={tag.color} />
-          ))}
-        </div>
-      ),
+      cell: ({ row }) => {
+        const lead = row.original;
+        const leadTagIds = lead.tags.map((t) => t.id);
+        const availableTags = allTags.filter((t) => !leadTagIds.includes(t.id));
+        return (
+          <div className="flex gap-1 flex-wrap items-center">
+            {lead.tags.map((tag) => (
+              <TagBadge
+                key={tag.id}
+                name={tag.name}
+                color={tag.color}
+                onRemove={() => handleRemoveTag(lead.id, tag.id)}
+              />
+            ))}
+            {availableTags.length > 0 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger>
+                  <button className="inline-flex items-center justify-center w-5 h-5 rounded border border-dashed border-muted-foreground/40 text-muted-foreground hover:border-primary hover:text-primary transition-colors">
+                    <Plus className="h-3 w-3" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  {availableTags.map((tag) => (
+                    <DropdownMenuItem
+                      key={tag.id}
+                      onClick={() => handleAddTag(lead.id, tag.id)}
+                    >
+                      <span
+                        className="w-2 h-2 rounded-full mr-2"
+                        style={{ backgroundColor: tag.color }}
+                      />
+                      {tag.name}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </div>
+        );
+      },
     },
     {
       id: "notes",
@@ -469,10 +523,43 @@ export default function LeadsPage() {
                       <span className="text-xs text-muted-foreground">No phone</span>
                     )}
                   </div>
-                  <div className="flex gap-1 flex-wrap">
+                  <div className="flex gap-1 flex-wrap items-center">
                     {lead.tags.map((tag) => (
-                      <TagBadge key={tag.id} name={tag.name} color={tag.color} />
+                      <TagBadge
+                        key={tag.id}
+                        name={tag.name}
+                        color={tag.color}
+                        onRemove={() => handleRemoveTag(lead.id, tag.id)}
+                      />
                     ))}
+                    {(() => {
+                      const leadTagIds = lead.tags.map((t) => t.id);
+                      const available = allTags.filter((t) => !leadTagIds.includes(t.id));
+                      if (available.length === 0) return null;
+                      return (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger>
+                            <button className="inline-flex items-center justify-center w-5 h-5 rounded border border-dashed border-muted-foreground/40 text-muted-foreground hover:border-primary hover:text-primary transition-colors">
+                              <Plus className="h-3 w-3" />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            {available.map((tag) => (
+                              <DropdownMenuItem
+                                key={tag.id}
+                                onClick={() => handleAddTag(lead.id, tag.id)}
+                              >
+                                <span
+                                  className="w-2 h-2 rounded-full mr-2"
+                                  style={{ backgroundColor: tag.color }}
+                                />
+                                {tag.name}
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      );
+                    })()}
                   </div>
                 </div>
               </div>
