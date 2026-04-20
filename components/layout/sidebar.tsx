@@ -14,6 +14,8 @@ import {
   Search,
   UserCheck,
   LogOut,
+  GraduationCap,
+  BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -29,6 +31,8 @@ const navItems = [
   { href: "/skip-trace", label: "Skip Trace", icon: Search },
   { href: "/dialer", label: "Dialer", icon: Phone },
   { href: "/buyers", label: "Buyers", icon: UserCheck },
+  { href: "/welcome", label: "Welcome Tour", icon: GraduationCap },
+  { href: "/knowledge-base", label: "Knowledge Base", icon: BookOpen },
 ];
 
 export function Sidebar() {

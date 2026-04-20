@@ -38,6 +38,7 @@ import {
   DropdownMenuSubTrigger,
 } from "@/components/ui/dropdown-menu";
 import { LeadStatusBadge, LeadStatusSelect } from "@/components/leads/lead-status-badge";
+import { AddLeadDialog } from "@/components/leads/add-lead-dialog";
 import { TagBadge } from "@/components/tags/tag-badge";
 import { LEAD_STATUSES } from "@/lib/constants";
 import { toast } from "sonner";
@@ -263,7 +264,10 @@ export default function LeadsPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">Leads ({total})</h1>
-        <Button onClick={() => router.push("/leads/import")}>Import CSV</Button>
+        <div className="flex items-center gap-2">
+          <AddLeadDialog onLeadCreated={fetchLeads} />
+          <Button variant="outline" onClick={() => router.push("/leads/import")}>Import CSV</Button>
+        </div>
       </div>
 
       {/* Toolbar */}
@@ -409,12 +413,16 @@ export default function LeadsPage() {
                 <TableCell colSpan={columns.length} className="text-center py-8">
                   <div className="text-muted-foreground">
                     <p>No leads found</p>
-                    <Button
-                      variant="link"
-                      onClick={() => router.push("/leads/import")}
-                    >
-                      Import your first CSV
-                    </Button>
+                    <p className="text-sm mt-1">
+                      Add a lead manually or{" "}
+                      <Button
+                        variant="link"
+                        className="p-0 h-auto"
+                        onClick={() => router.push("/leads/import")}
+                      >
+                        import a CSV
+                      </Button>
+                    </p>
                   </div>
                 </TableCell>
               </TableRow>
