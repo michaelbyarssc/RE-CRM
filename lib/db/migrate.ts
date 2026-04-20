@@ -124,6 +124,13 @@ export async function runMigrations() {
       uploaded_at TEXT NOT NULL DEFAULT NOW()::text
     );
 
+    CREATE TABLE IF NOT EXISTS settings (
+      id SERIAL PRIMARY KEY,
+      key TEXT NOT NULL UNIQUE,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT NOW()::text
+    );
+
     CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status);
     CREATE INDEX IF NOT EXISTS idx_leads_zip ON leads(property_zip);
     CREATE INDEX IF NOT EXISTS idx_leads_state_city ON leads(property_state, property_city);

@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { LEAD_STATUSES, type LeadStatus } from "@/lib/constants";
 import { toast } from "sonner";
 import { MapPin, Phone, GripVertical } from "lucide-react";
+import { AddLeadDialog } from "@/components/leads/add-lead-dialog";
 
 interface Lead {
   id: number;
@@ -78,7 +79,10 @@ export default function PipelinePage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">Pipeline</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold">Pipeline</h1>
+        <AddLeadDialog onLeadCreated={fetchLeads} />
+      </div>
 
       <div className="flex gap-4 overflow-x-auto pb-4" style={{ minHeight: "calc(100vh - 160px)" }}>
         {LEAD_STATUSES.map((status) => {

@@ -116,3 +116,10 @@ export const documents = pgTable("documents", {
   fileType: text("file_type"),
   uploadedAt: text("uploaded_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
+
+export const settings = pgTable("settings", {
+  id: serial("id").primaryKey(),
+  key: text("key").notNull().unique(),
+  value: text("value").notNull(),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
