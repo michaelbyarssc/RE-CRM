@@ -84,7 +84,59 @@ export default function PipelinePage() {
         <AddLeadDialog onLeadCreated={fetchLeads} />
       </div>
 
-      <div className="flex gap-4 overflow-x-auto pb-4" style={{ minHeight: "calc(100vh - 160px)" }}>
+      {/* Mobile: vertical stacked columns (no horizontal scroll) */}
+      <div className="md:hidden space-y-4">
+        {LEAD_STATUSES.map((status) => {
+          const statusLeads = getLeadsByStatus(status.value);
+          if (statusLeads.length === 0) return null;
+
+          return (
+            <div key={status.value} className="rounded-lg border bg-muted/30">
+              <div className="p-3 border-b flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className={`w-3 h-3 rounded-full ${status.color}`} />
+                  <span className="font-medium text-sm">{status.label}</span>
+                </div>
+                <Badge variant="secondary" className="text-xs">
+                  {statusLeads.length}
+                </Badge>
+              </div>
+              <div className="p-2 space-y-2">
+                {statusLeads.map((lead) => {
+                  const name = [lead.firstName, lead.lastName]
+                    .filter(Boolean)
+                    .join(" ") || "Unknown";
+
+                  return (
+                    <Card
+                      key={lead.id}
+                      className="hover:border-primary/50 transition-colors"
+                      onClick={() => router.push(`/leads/${lead.id}`)}
+                    >
+                      <CardContent className="p-3">
+                        <p className="font-medium text-sm truncate">{name}</p>
+                        <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                          <MapPin className="h-3 w-3 shrink-0" />
+                          <span className="truncate">{lead.propertyAddress}</span>
+                        </p>
+                        {lead.phone && (
+                          <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                            <Phone className="h-3 w-3 shrink-0" />
+                            {lead.phone}
+                          </p>
+                        )}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Desktop: horizontal kanban with drag-and-drop */}
+      <div className="hidden md:flex gap-4 overflow-x-auto pb-4" style={{ minHeight: "calc(100vh - 160px)" }}>
         {LEAD_STATUSES.map((status) => {
           const statusLeads = getLeadsByStatus(status.value);
           const isOver = dragOverStatus === status.value;
@@ -92,7 +144,7 @@ export default function PipelinePage() {
           return (
             <div
               key={status.value}
-              className={`flex-shrink-0 w-60 md:w-72 rounded-lg border ${
+              className={`flex-shrink-0 w-72 rounded-lg border ${
                 isOver ? "border-primary bg-primary/5" : "bg-muted/30"
               }`}
               onDragOver={(e) => handleDragOver(e, status.value)}

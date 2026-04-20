@@ -247,7 +247,47 @@ export default function SkipTracePage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="border rounded-md overflow-x-auto">
+              {/* Mobile card view */}
+              <div className="md:hidden space-y-2">
+                <div className="flex items-center gap-2 mb-3 pb-3 border-b">
+                  <Checkbox
+                    checked={selected.size === leads.length && leads.length > 0}
+                    onCheckedChange={selectAll}
+                  />
+                  <span className="text-sm text-muted-foreground">Select All</span>
+                </div>
+                {leads.map((lead) => (
+                  <div
+                    key={lead.id}
+                    className={`border rounded-md p-3 ${selected.has(lead.id) ? "border-primary bg-primary/5" : ""}`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <Checkbox
+                        checked={selected.has(lead.id)}
+                        onCheckedChange={() => toggleSelect(lead.id)}
+                        className="mt-0.5"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm truncate">
+                          {[lead.firstName, lead.lastName].filter(Boolean).join(" ") || "-"}
+                        </p>
+                        <p className="text-xs text-muted-foreground truncate mt-0.5">{lead.propertyAddress}</p>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5">
+                          <span className="text-xs">
+                            {lead.phone || <span className="text-muted-foreground">No phone</span>}
+                          </span>
+                          <span className="text-xs">
+                            {lead.email || <span className="text-muted-foreground">No email</span>}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop table view */}
+              <div className="hidden md:block border rounded-md">
                 <Table>
                   <TableHeader>
                     <TableRow>
