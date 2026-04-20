@@ -131,12 +131,46 @@ export async function runMigrations() {
       updated_at TEXT NOT NULL DEFAULT NOW()::text
     );
 
+    CREATE TABLE IF NOT EXISTS calendar_events (
+      id SERIAL PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT,
+      event_type TEXT NOT NULL DEFAULT 'custom',
+      start_at TEXT NOT NULL,
+      end_at TEXT,
+      all_day INTEGER DEFAULT 0,
+      location TEXT,
+      status TEXT NOT NULL DEFAULT 'scheduled',
+      lead_id INTEGER REFERENCES leads(id) ON DELETE SET NULL,
+      buyer_id INTEGER REFERENCES buyers(id) ON DELETE SET NULL,
+      google_event_id TEXT,
+      google_calendar_id TEXT,
+      sync_status TEXT,
+      created_at TEXT NOT NULL DEFAULT NOW()::text,
+      updated_at TEXT NOT NULL DEFAULT NOW()::text
+    );
+
+    CREATE TABLE IF NOT EXISTS google_calendar_tokens (
+      id SERIAL PRIMARY KEY,
+      access_token TEXT NOT NULL,
+      refresh_token TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      calendar_id TEXT,
+      sync_enabled INTEGER DEFAULT 1,
+      last_sync_at TEXT,
+      created_at TEXT NOT NULL DEFAULT NOW()::text,
+      updated_at TEXT NOT NULL DEFAULT NOW()::text
+    );
+
     CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status);
     CREATE INDEX IF NOT EXISTS idx_leads_zip ON leads(property_zip);
     CREATE INDEX IF NOT EXISTS idx_leads_state_city ON leads(property_state, property_city);
     CREATE INDEX IF NOT EXISTS idx_lead_sequences_next ON lead_sequences(next_action_at);
     CREATE INDEX IF NOT EXISTS idx_notes_lead ON notes(lead_id);
     CREATE INDEX IF NOT EXISTS idx_call_log_lead ON call_log(lead_id);
+    CREATE INDEX IF NOT EXISTS idx_calendar_events_start ON calendar_events(start_at);
+    CREATE INDEX IF NOT EXISTS idx_calendar_events_lead ON calendar_events(lead_id);
+    CREATE INDEX IF NOT EXISTS idx_calendar_events_buyer ON calendar_events(buyer_id);
   `);
 
   // Seed default tags

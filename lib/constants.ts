@@ -91,6 +91,26 @@ export const CSV_COLUMN_MAPPINGS: Record<string, string> = {
   "contact email": "email",
 };
 
+export const EVENT_TYPES = [
+  { value: "appointment", label: "Appointment", color: "bg-blue-500", hex: "#3B82F6" },
+  { value: "callback", label: "Callback", color: "bg-yellow-500", hex: "#EAB308" },
+  { value: "follow_up", label: "Follow-up", color: "bg-purple-500", hex: "#A855F7" },
+  { value: "closing", label: "Closing", color: "bg-emerald-500", hex: "#10B981" },
+  { value: "custom", label: "Custom", color: "bg-gray-500", hex: "#6B7280" },
+] as const;
+
+export type EventType = (typeof EVENT_TYPES)[number]["value"];
+
+export const EVENT_TYPE_MAP = Object.fromEntries(
+  EVENT_TYPES.map((e) => [e.value, e])
+) as Record<EventType, (typeof EVENT_TYPES)[number]>;
+
+export const EVENT_STATUSES = [
+  { value: "scheduled", label: "Scheduled" },
+  { value: "completed", label: "Completed" },
+  { value: "cancelled", label: "Cancelled" },
+] as const;
+
 export const LEAD_FIELD_OPTIONS = [
   { value: "firstName", label: "First Name" },
   { value: "lastName", label: "Last Name" },

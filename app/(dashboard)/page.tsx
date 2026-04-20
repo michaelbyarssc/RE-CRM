@@ -1,12 +1,34 @@
 import { getLeadCounts } from "@/lib/actions/leads";
+import { getUpcomingEvents } from "@/lib/actions/calendar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { LEAD_STATUSES } from "@/lib/constants";
+import { Badge } from "@/components/ui/badge";
+import { LEAD_STATUSES, EVENT_TYPE_MAP } from "@/lib/constants";
 import Link from "next/link";
+import { CalendarDays, Clock, MapPin } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
+function formatEventDate(iso: string, allDay: number | null) {
+  const d = new Date(iso);
+  const now = new Date();
+  const isToday = d.toDateString() === now.toDateString();
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const isTomorrow = d.toDateString() === tomorrow.toDateString();
+
+  const day = isToday ? "Today" : isTomorrow ? "Tomorrow" : d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  if (allDay) return day;
+  return `${day} at ${d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
+}
+
 export default async function DashboardPage() {
   const counts = await getLeadCounts();
+  let upcomingEvents: Awaited<ReturnType<typeof getUpcomingEvents>> = [];
+  try {
+    upcomingEvents = await getUpcomingEvents(5);
+  } catch {
+    // Table may not exist yet
+  }
 
   return (
     <div>
@@ -44,6 +66,69 @@ export default async function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Upcoming Events */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <CalendarDays className="h-5 w-5" />
+              Upcoming Events
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {upcomingEvents.length === 0 ? (
+              <div className="text-sm text-muted-foreground text-center py-4">
+                <p>No upcoming events</p>
+                <Link href="/calendar" className="text-primary hover:underline text-xs mt-1 block">
+                  Open Calendar
+                </Link>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {upcomingEvents.map((event) => {
+                  const typeInfo = EVENT_TYPE_MAP[event.eventType as keyof typeof EVENT_TYPE_MAP];
+                  const linkedName = event.leadId
+                    ? [event.leadFirstName, event.leadLastName].filter(Boolean).join(" ") || event.leadAddress
+                    : event.buyerName;
+                  return (
+                    <Link
+                      key={event.id}
+                      href="/calendar"
+                      className="block p-2.5 rounded-md border hover:bg-accent transition-colors"
+                    >
+                      <div className="flex items-start gap-2">
+                        <div
+                          className="w-2 h-2 rounded-full mt-1.5 shrink-0"
+                          style={{ backgroundColor: typeInfo?.hex || "#6B7280" }}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-sm truncate">{event.title}</p>
+                          <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                            <Clock className="h-3 w-3" />
+                            {formatEventDate(event.startAt, event.allDay)}
+                          </p>
+                          {linkedName && (
+                            <p className="text-xs text-muted-foreground truncate mt-0.5">
+                              {event.leadId ? "Lead" : "Buyer"}: {linkedName}
+                            </p>
+                          )}
+                          {event.location && (
+                            <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                              <MapPin className="h-3 w-3" />{event.location}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </Link>
+                  );
+                })}
+                <Link href="/calendar" className="block text-xs text-primary hover:underline text-center pt-1">
+                  View Full Calendar
+                </Link>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader>
             <CardTitle>Quick Actions</CardTitle>

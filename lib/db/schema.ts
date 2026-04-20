@@ -123,3 +123,34 @@ export const settings = pgTable("settings", {
   value: text("value").notNull(),
   updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
+
+export const calendarEvents = pgTable("calendar_events", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  description: text("description"),
+  eventType: text("event_type").notNull().default("custom"),
+  startAt: text("start_at").notNull(),
+  endAt: text("end_at"),
+  allDay: integer("all_day").default(0),
+  location: text("location"),
+  status: text("status").notNull().default("scheduled"),
+  leadId: integer("lead_id").references(() => leads.id, { onDelete: "set null" }),
+  buyerId: integer("buyer_id").references(() => buyers.id, { onDelete: "set null" }),
+  googleEventId: text("google_event_id"),
+  googleCalendarId: text("google_calendar_id"),
+  syncStatus: text("sync_status"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
+
+export const googleCalendarTokens = pgTable("google_calendar_tokens", {
+  id: serial("id").primaryKey(),
+  accessToken: text("access_token").notNull(),
+  refreshToken: text("refresh_token").notNull(),
+  expiresAt: text("expires_at").notNull(),
+  calendarId: text("calendar_id"),
+  syncEnabled: integer("sync_enabled").default(1),
+  lastSyncAt: text("last_sync_at"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+});

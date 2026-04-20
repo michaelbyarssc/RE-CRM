@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
-import { Settings, Eye, EyeOff, Save, Search, Phone } from "lucide-react";
+import { Settings, Eye, EyeOff, Save, Search, Phone, CalendarDays, Check, X, RefreshCw, Loader2, Unlink } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 
 interface FieldConfig {
   key: string;
@@ -48,11 +49,21 @@ const sections: SectionConfig[] = [
   },
 ];
 
+interface GoogleCalStatus {
+  connected: boolean;
+  calendarId: string | null;
+  syncEnabled: boolean;
+  lastSyncAt: string | null;
+}
+
 export default function SettingsPage() {
   const [values, setValues] = useState<Record<string, string>>({});
   const [visibility, setVisibility] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState<Record<string, boolean>>({});
   const [loaded, setLoaded] = useState(false);
+  const [googleStatus, setGoogleStatus] = useState<GoogleCalStatus | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
 
   const fetchSettings = useCallback(async () => {
     try {
@@ -68,9 +79,31 @@ export default function SettingsPage() {
     }
   }, []);
 
+  const fetchGoogleStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/calendar/google");
+      if (res.ok) setGoogleStatus(await res.json());
+    } catch {
+      // Not configured yet
+    }
+  }, []);
+
   useEffect(() => {
     fetchSettings();
-  }, [fetchSettings]);
+    fetchGoogleStatus();
+
+    // Check for OAuth redirect params
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("google_success")) {
+      toast.success("Google Calendar connected!");
+      window.history.replaceState({}, "", "/settings");
+      fetchGoogleStatus();
+    }
+    if (params.get("google_error")) {
+      toast.error(`Google Calendar error: ${params.get("google_error")}`);
+      window.history.replaceState({}, "", "/settings");
+    }
+  }, [fetchSettings, fetchGoogleStatus]);
 
   const toggleVisibility = (key: string) => {
     setVisibility((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -104,6 +137,42 @@ export default function SettingsPage() {
     }
   };
 
+  const handleGoogleConnect = () => {
+    window.location.href = "/api/calendar/google?action=connect";
+  };
+
+  const handleGoogleDisconnect = async () => {
+    if (!confirm("Disconnect Google Calendar? Events already in the CRM will be kept.")) return;
+    setDisconnecting(true);
+    try {
+      await fetch("/api/calendar/google", { method: "DELETE" });
+      toast.success("Google Calendar disconnected");
+      setGoogleStatus({ connected: false, calendarId: null, syncEnabled: false, lastSyncAt: null });
+    } catch {
+      toast.error("Failed to disconnect");
+    } finally {
+      setDisconnecting(false);
+    }
+  };
+
+  const handleGoogleSync = async () => {
+    setSyncing(true);
+    try {
+      const res = await fetch("/api/calendar/google/sync", { method: "POST" });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(`Synced! Pushed: ${data.pushed}, Pulled: ${data.pulled}${data.errors ? `, Errors: ${data.errors}` : ""}`);
+        fetchGoogleStatus();
+      } else {
+        toast.error(data.error || "Sync failed");
+      }
+    } catch {
+      toast.error("Sync failed");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   if (!loaded) {
     return (
       <div className="flex items-center justify-center py-24">
@@ -125,6 +194,82 @@ export default function SettingsPage() {
       </div>
 
       <div className="space-y-6">
+        {/* Google Calendar Integration */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center justify-center h-9 w-9 rounded-lg bg-primary/10 text-primary">
+                <CalendarDays className="h-5 w-5" />
+              </div>
+              <div className="flex-1">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  Google Calendar
+                  {googleStatus?.connected && (
+                    <Badge variant="outline" className="text-xs text-green-600 border-green-300">
+                      <Check className="h-3 w-3 mr-1" /> Connected
+                    </Badge>
+                  )}
+                </CardTitle>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  Two-way sync your calendar events with Google Calendar
+                </p>
+              </div>
+            </div>
+          </CardHeader>
+          <Separator />
+          <CardContent className="pt-6">
+            {googleStatus?.connected ? (
+              <div className="space-y-4">
+                <div className="text-sm space-y-1">
+                  <p>
+                    <span className="text-muted-foreground">Calendar:</span>{" "}
+                    {googleStatus.calendarId || "Primary"}
+                  </p>
+                  {googleStatus.lastSyncAt && (
+                    <p>
+                      <span className="text-muted-foreground">Last synced:</span>{" "}
+                      {new Date(googleStatus.lastSyncAt).toLocaleString()}
+                    </p>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button onClick={handleGoogleSync} disabled={syncing} size="sm">
+                    {syncing ? (
+                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Syncing...</>
+                    ) : (
+                      <><RefreshCw className="h-4 w-4 mr-2" />Sync Now</>
+                    )}
+                  </Button>
+                  <Button
+                    onClick={handleGoogleDisconnect}
+                    disabled={disconnecting}
+                    variant="outline"
+                    size="sm"
+                    className="text-destructive hover:text-destructive"
+                  >
+                    <Unlink className="h-4 w-4 mr-2" />
+                    Disconnect
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  Connect your Google Calendar to automatically sync appointments,
+                  callbacks, and follow-ups between Deal Desk Pro and Google Calendar.
+                </p>
+                <Button onClick={handleGoogleConnect}>
+                  <CalendarDays className="h-4 w-4 mr-2" />
+                  Connect Google Calendar
+                </Button>
+                <p className="text-xs text-muted-foreground">
+                  Requires GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET environment variables to be set.
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         {sections.map((section) => (
           <Card key={section.id}>
             <CardHeader>

@@ -18,6 +18,7 @@ import {
   BookOpen,
   Settings,
   Menu,
+  CalendarDays,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -39,6 +40,7 @@ const navItems = [
   { href: "/skip-trace", label: "Skip Trace", icon: Search },
   { href: "/dialer", label: "Dialer", icon: Phone },
   { href: "/buyers", label: "Buyers", icon: UserCheck },
+  { href: "/calendar", label: "Calendar", icon: CalendarDays },
   { href: "/welcome", label: "Welcome Tour", icon: GraduationCap },
   { href: "/knowledge-base", label: "Knowledge Base", icon: BookOpen },
   { href: "/settings", label: "Settings", icon: Settings },
