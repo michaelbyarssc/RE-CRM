@@ -39,6 +39,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { LeadStatusBadge, LeadStatusSelect } from "@/components/leads/lead-status-badge";
 import { AddLeadDialog } from "@/components/leads/add-lead-dialog";
+import { QuickNoteDialog } from "@/components/leads/quick-note-dialog";
 import { TagBadge } from "@/components/tags/tag-badge";
 import { LEAD_STATUSES } from "@/lib/constants";
 import { toast } from "sonner";
@@ -238,6 +239,16 @@ export default function LeadsPage() {
           ))}
         </div>
       ),
+    },
+    {
+      id: "notes",
+      header: "Notes",
+      cell: ({ row }) => {
+        const lead = row.original;
+        const name = [lead.firstName, lead.lastName].filter(Boolean).join(" ") || "Unknown";
+        return <QuickNoteDialog leadId={lead.id} leadName={name} />;
+      },
+      size: 60,
     },
     {
       accessorKey: "createdAt",
