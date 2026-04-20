@@ -35,15 +35,18 @@ export async function updateSession(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
 
-  // If not authenticated and not on login page, redirect to login
-  if (!user && pathname !== "/login") {
+  // Public pages that don't require authentication
+  const publicPaths = ["/login", "/privacy", "/terms"];
+
+  // If not authenticated and not on a public page, redirect to login
+  if (!user && !publicPaths.includes(pathname)) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
   }
 
   // If authenticated and on login page, redirect to dashboard
-  if (user && pathname === "/login") {
+  if (user && publicPaths.includes(pathname)) {
     const url = request.nextUrl.clone();
     url.pathname = "/";
     return NextResponse.redirect(url);
