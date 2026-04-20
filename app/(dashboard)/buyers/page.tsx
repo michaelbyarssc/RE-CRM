@@ -239,14 +239,14 @@ export default function BuyersPage() {
                             <MapPin className="h-3.5 w-3.5" />
                             <span>Areas: {criteria.areas}</span>
                             {criteria.geocodedAreas?.length > 0 ? (
-                              <Badge variant="outline" className="text-[10px] text-green-600 border-green-300">
+                              <Badge variant="outline" className="text-base text-green-600 border-green-300">
                                 On Map
                               </Badge>
                             ) : (
                               <Button
                                 variant="outline"
                                 size="sm"
-                                className="h-5 text-[10px] px-1.5"
+                                className="h-5 text-base px-1.5"
                                 onClick={(e) => { e.stopPropagation(); handleGeocodeAreas(buyer.id); }}
                               >
                                 <MapPin className="h-3 w-3 mr-1" />Map Areas
@@ -307,14 +307,14 @@ export default function BuyersPage() {
                               <div className="flex items-center gap-1.5 flex-wrap">
                                 <span>Areas: {criteria.areas}</span>
                                 {criteria.geocodedAreas?.length > 0 ? (
-                                  <Badge variant="outline" className="text-[10px] text-green-600 border-green-300">
+                                  <Badge variant="outline" className="text-base text-green-600 border-green-300">
                                     On Map
                                   </Badge>
                                 ) : (
                                   <Button
                                     variant="outline"
                                     size="sm"
-                                    className="h-5 text-[10px] px-1.5"
+                                    className="h-5 text-base px-1.5"
                                     onClick={() => handleGeocodeAreas(buyer.id)}
                                   >
                                     <MapPin className="h-3 w-3 mr-1" />Map Areas

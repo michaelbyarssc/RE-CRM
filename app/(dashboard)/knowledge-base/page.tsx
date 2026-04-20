@@ -415,7 +415,7 @@ export default function KnowledgeBasePage() {
           >
             <BookOpen className="h-3.5 w-3.5" />
             All Articles
-            <Badge variant="secondary" className="ml-auto text-[10px] px-1.5">
+            <Badge variant="secondary" className="ml-auto text-base px-1.5">
               {totalArticles}
             </Badge>
           </button>
@@ -440,7 +440,7 @@ export default function KnowledgeBasePage() {
                 {matchCount !== undefined && searchQuery && (
                   <Badge
                     variant="secondary"
-                    className="ml-auto text-[10px] px-1.5"
+                    className="ml-auto text-base px-1.5"
                   >
                     {matchCount}
                   </Badge>

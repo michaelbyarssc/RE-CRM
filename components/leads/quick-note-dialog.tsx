@@ -127,7 +127,7 @@ export function QuickNoteDialog({
               <MessageSquarePlus className="h-4 w-4 mr-1" />
               {loading ? "Adding..." : "Add Note"}
             </Button>
-            <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+            <p className="text-base text-muted-foreground flex items-center gap-1">
               <CalendarDays className="h-3 w-3" />
               Dates & times auto-add to calendar
             </p>
