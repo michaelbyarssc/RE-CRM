@@ -12,8 +12,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { LEAD_STATUSES } from "@/lib/constants";
+import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
-import { MapPin, RefreshCw, UserCheck } from "lucide-react";
+import { MapPin, RefreshCw, UserCheck, Phone, Mail, DollarSign } from "lucide-react";
 
 const MapView = dynamic(
   () => import("@/components/map/map-view").then((m) => m.MapView),
@@ -139,44 +140,81 @@ export default function MapPage() {
         showBuyerZones={showBuyerZones}
       />
 
-      {/* Legends */}
-      <div className="mt-3 space-y-2">
-        {/* Status legend */}
-        <div className="flex gap-4 flex-wrap">
-          {LEAD_STATUSES.map((s) => (
-            <div key={s.value} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <span className={`w-3 h-3 rounded-full ${s.color}`} />
-              {s.label}
-            </div>
-          ))}
-        </div>
-
-        {/* Buyer zones legend */}
-        {showBuyerZones && buyerZones.length > 0 && (
-          <div className="border-t pt-2">
-            <p className="text-xs font-medium text-muted-foreground mb-1.5">Buyer Coverage Zones:</p>
-            <div className="flex gap-4 flex-wrap">
-              {buyerZones.map((buyer, i) => (
-                <div key={buyer.id} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <span
-                    className="w-3 h-3 rounded-full border border-white"
-                    style={{ backgroundColor: BUYER_COLORS[i % BUYER_COLORS.length], opacity: 0.8 }}
-                  />
-                  {buyer.name}
-                  {buyer.priceRange && <span className="text-[10px]">({buyer.priceRange})</span>}
-                </div>
-              ))}
-            </div>
+      {/* Status legend */}
+      <div className="flex gap-4 mt-3 flex-wrap">
+        {LEAD_STATUSES.map((s) => (
+          <div key={s.value} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span className={`w-3 h-3 rounded-full ${s.color}`} />
+            {s.label}
           </div>
-        )}
-
-        {buyerZones.length === 0 && (
-          <p className="text-xs text-muted-foreground mt-1">
-            <UserCheck className="h-3 w-3 inline mr-1" />
-            Add buyers with areas on the <a href="/buyers" className="underline">Buyers page</a> to see coverage zones on the map.
-          </p>
-        )}
+        ))}
       </div>
+
+      {/* Buyer list panel - shows when Buyer Zones ON */}
+      {showBuyerZones && buyerZones.length > 0 && (
+        <div className="mt-4">
+          <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
+            <UserCheck className="h-4 w-4" />
+            Buyers on Map ({buyerZones.length})
+          </h2>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {buyerZones.map((buyer, i) => {
+              const color = BUYER_COLORS[i % BUYER_COLORS.length];
+              return (
+                <Card key={buyer.id} className="overflow-hidden">
+                  <div className="h-1.5" style={{ backgroundColor: color }} />
+                  <CardContent className="p-3">
+                    <div className="flex items-start gap-2">
+                      <span
+                        className="w-4 h-4 rounded-full shrink-0 mt-0.5 border-2 border-white"
+                        style={{ backgroundColor: color, boxShadow: `0 0 0 1px ${color}40` }}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm truncate">{buyer.name}</p>
+                        {buyer.company && (
+                          <p className="text-xs text-muted-foreground truncate">{buyer.company}</p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="mt-2 space-y-1">
+                      <p className="text-xs flex items-center gap-1.5">
+                        <MapPin className="h-3 w-3 text-muted-foreground shrink-0" />
+                        <span className="truncate">{buyer.areas}</span>
+                      </p>
+                      {buyer.priceRange && (
+                        <p className="text-xs flex items-center gap-1.5">
+                          <DollarSign className="h-3 w-3 text-muted-foreground shrink-0" />
+                          {buyer.priceRange}
+                        </p>
+                      )}
+                      {buyer.phone && (
+                        <a href={`tel:${buyer.phone}`} className="text-xs flex items-center gap-1.5 hover:underline">
+                          <Phone className="h-3 w-3 text-muted-foreground shrink-0" />
+                          {buyer.phone}
+                        </a>
+                      )}
+                      {buyer.email && (
+                        <a href={`mailto:${buyer.email}`} className="text-xs flex items-center gap-1.5 hover:underline truncate">
+                          <Mail className="h-3 w-3 text-muted-foreground shrink-0" />
+                          <span className="truncate">{buyer.email}</span>
+                        </a>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {buyerZones.length === 0 && (
+        <p className="text-xs text-muted-foreground mt-3">
+          <UserCheck className="h-3 w-3 inline mr-1" />
+          Add buyers with areas on the <a href="/buyers" className="underline">Buyers page</a> to see coverage zones on the map.
+        </p>
+      )}
     </div>
   );
 }
