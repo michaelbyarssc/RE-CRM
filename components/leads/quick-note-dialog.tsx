@@ -11,7 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { MessageSquarePlus, StickyNote, Trash2 } from "lucide-react";
+import { MessageSquarePlus, StickyNote, Trash2, CalendarDays } from "lucide-react";
 
 interface Note {
   id: number;
@@ -55,9 +55,26 @@ export function QuickNoteDialog({
         body: JSON.stringify({ leadId, content: newNote.trim() }),
       });
       if (res.ok) {
+        const data = await res.json();
         setNewNote("");
         fetchNotes();
         toast.success("Note added");
+        // Show calendar event toast if auto-created
+        if (data.calendarEvent) {
+          const eventDate = new Date(data.calendarEvent.startAt);
+          const typeLabel = data.calendarEvent.eventType === "callback" ? "Callback" :
+            data.calendarEvent.eventType === "appointment" ? "Appointment" : "Follow-up";
+          toast(
+            `📅 ${typeLabel} scheduled`,
+            {
+              description: `${data.calendarEvent.title} — ${eventDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })} at ${eventDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`,
+              action: {
+                label: "View Calendar",
+                onClick: () => window.location.href = "/calendar",
+              },
+            }
+          );
+        }
       }
     } catch {
       toast.error("Failed to add note");
@@ -101,14 +118,20 @@ export function QuickNoteDialog({
               }}
             />
           </div>
-          <Button
-            size="sm"
-            onClick={handleAddNote}
-            disabled={!newNote.trim() || loading}
-          >
-            <MessageSquarePlus className="h-4 w-4 mr-1" />
-            {loading ? "Adding..." : "Add Note"}
-          </Button>
+          <div className="flex items-center justify-between">
+            <Button
+              size="sm"
+              onClick={handleAddNote}
+              disabled={!newNote.trim() || loading}
+            >
+              <MessageSquarePlus className="h-4 w-4 mr-1" />
+              {loading ? "Adding..." : "Add Note"}
+            </Button>
+            <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+              <CalendarDays className="h-3 w-3" />
+              Dates & times auto-add to calendar
+            </p>
+          </div>
 
           {/* Notes list */}
           {notes.length > 0 && (

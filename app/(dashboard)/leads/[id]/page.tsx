@@ -142,14 +142,31 @@ export default function LeadDetailPage({
 
   const handleAddNote = async () => {
     if (!newNote.trim()) return;
-    await fetch("/api/notes", {
+    const res = await fetch("/api/notes", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ leadId: Number(id), content: newNote }),
     });
+    const data = await res.json();
     setNewNote("");
     fetchNotes();
     toast.success("Note added");
+    // Show calendar event toast if auto-created
+    if (data.calendarEvent) {
+      const eventDate = new Date(data.calendarEvent.startAt);
+      const typeLabel = data.calendarEvent.eventType === "callback" ? "Callback" :
+        data.calendarEvent.eventType === "appointment" ? "Appointment" : "Follow-up";
+      toast(
+        `📅 ${typeLabel} scheduled`,
+        {
+          description: `${data.calendarEvent.title} — ${eventDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })} at ${eventDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`,
+          action: {
+            label: "View Calendar",
+            onClick: () => window.location.href = "/calendar",
+          },
+        }
+      );
+    }
   };
 
   const handleDeleteNote = async (noteId: number) => {
