@@ -52,7 +52,7 @@ export function QuickNoteDialog({
       const res = await fetch("/api/notes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ leadId, content: newNote.trim() }),
+        body: JSON.stringify({ leadId, content: newNote.trim(), timezoneOffset: new Date().getTimezoneOffset() }),
       });
       if (res.ok) {
         const data = await res.json();

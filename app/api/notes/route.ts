@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
 
     if (lead) {
       const leadName = [lead.firstName, lead.lastName].filter(Boolean).join(" ") || "Lead";
-      const parsed = parseNoteForEvent(body.content, leadName);
+      const parsed = parseNoteForEvent(body.content, leadName, body.timezoneOffset);
 
       if (parsed) {
         calendarEvent = await createEvent({

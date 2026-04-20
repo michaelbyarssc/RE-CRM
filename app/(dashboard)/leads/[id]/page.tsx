@@ -145,7 +145,7 @@ export default function LeadDetailPage({
     const res = await fetch("/api/notes", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ leadId: Number(id), content: newNote }),
+      body: JSON.stringify({ leadId: Number(id), content: newNote, timezoneOffset: new Date().getTimezoneOffset() }),
     });
     const data = await res.json();
     setNewNote("");
