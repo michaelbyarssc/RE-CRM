@@ -182,18 +182,12 @@ export async function runMigrations() {
     CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status);
     CREATE INDEX IF NOT EXISTS idx_leads_zip ON leads(property_zip);
     CREATE INDEX IF NOT EXISTS idx_leads_state_city ON leads(property_state, property_city);
-    CREATE INDEX IF NOT EXISTS idx_leads_user ON leads(user_id);
     CREATE INDEX IF NOT EXISTS idx_lead_sequences_next ON lead_sequences(next_action_at);
     CREATE INDEX IF NOT EXISTS idx_notes_lead ON notes(lead_id);
     CREATE INDEX IF NOT EXISTS idx_call_log_lead ON call_log(lead_id);
     CREATE INDEX IF NOT EXISTS idx_calendar_events_start ON calendar_events(start_at);
     CREATE INDEX IF NOT EXISTS idx_calendar_events_lead ON calendar_events(lead_id);
     CREATE INDEX IF NOT EXISTS idx_calendar_events_buyer ON calendar_events(buyer_id);
-    CREATE INDEX IF NOT EXISTS idx_calendar_events_user ON calendar_events(user_id);
-    CREATE INDEX IF NOT EXISTS idx_buyers_user ON buyers(user_id);
-    CREATE INDEX IF NOT EXISTS idx_tags_user ON tags(user_id);
-    CREATE INDEX IF NOT EXISTS idx_sequences_user ON sequences(user_id);
-    CREATE INDEX IF NOT EXISTS idx_settings_user ON settings(user_id);
   `);
 
   // Add user_id columns to existing tables (safe if already exist)
@@ -206,6 +200,16 @@ export async function runMigrations() {
     ALTER TABLE settings ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES user_profiles(id);
     ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES user_profiles(id);
     ALTER TABLE google_calendar_tokens ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES user_profiles(id);
+  `);
+
+  // Now create user_id indexes (must be after ALTER TABLE adds the columns)
+  await sql.unsafe(`
+    CREATE INDEX IF NOT EXISTS idx_leads_user ON leads(user_id);
+    CREATE INDEX IF NOT EXISTS idx_calendar_events_user ON calendar_events(user_id);
+    CREATE INDEX IF NOT EXISTS idx_buyers_user ON buyers(user_id);
+    CREATE INDEX IF NOT EXISTS idx_tags_user ON tags(user_id);
+    CREATE INDEX IF NOT EXISTS idx_sequences_user ON sequences(user_id);
+    CREATE INDEX IF NOT EXISTS idx_settings_user ON settings(user_id);
   `);
 
   // Drop old unique constraints that need to become composite
