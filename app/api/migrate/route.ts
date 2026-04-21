@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { runMigrations, backfillUserData } from "@/lib/db/migrate";
 import { db } from "@/lib/db";
 import { userProfiles } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function POST(req: NextRequest) {
@@ -9,7 +10,7 @@ export async function POST(req: NextRequest) {
     // Run schema migrations
     const result = await runMigrations();
 
-    // After migration, check if we need to do the backfill
+    // Get current user
     const supabase = await createSupabaseServerClient();
     const { data: { user }, error: authError } = await supabase.auth.getUser();
 
@@ -22,35 +23,32 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Check if any profile exists
-    const existingProfiles = await db.select().from(userProfiles).limit(1);
+    // Ensure user profile exists and is admin
+    const [profile] = await db.select().from(userProfiles)
+      .where(eq(userProfiles.id, user.id)).limit(1);
 
-    if (existingProfiles.length === 0) {
-      // First migration: create admin profile for current user
+    if (!profile) {
       await db.insert(userProfiles).values({
         id: user.id,
         email: user.email!,
         role: "admin",
       });
-
-      // Backfill all existing data to this admin user
-      const backfillResult = await backfillUserData(user.id);
-
-      return NextResponse.json({
-        ...result,
-        backfilled: true,
-        adminUserId: user.id,
-        adminEmail: user.email,
-        backfillResult,
-      });
+    } else if (profile.role !== "admin") {
+      await db.update(userProfiles)
+        .set({ role: "admin" })
+        .where(eq(userProfiles.id, user.id));
     }
+
+    // Always run backfill (safe — only updates rows where user_id IS NULL)
+    const backfillResult = await backfillUserData(user.id);
 
     return NextResponse.json({
       ...result,
-      backfill: "skipped",
-      reason: "Profiles already exist",
-      profileCount: existingProfiles.length,
-      userId: user.id,
+      backfilled: true,
+      adminUserId: user.id,
+      adminEmail: user.email,
+      role: "admin",
+      backfillResult,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";
