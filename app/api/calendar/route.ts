@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
 
   const event = await createEvent(body);
 
-  // Immediately push to Google Calendar
+  // Immediately push to Google Calendar (event has userId from createEvent)
   autoSyncEvent(event);
 
   return NextResponse.json(event);

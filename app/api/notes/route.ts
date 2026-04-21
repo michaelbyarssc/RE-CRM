@@ -5,7 +5,8 @@ import { parseNoteForEvent } from "@/lib/parse-note-events";
 import { autoSyncEvent } from "@/lib/google-calendar";
 import { db } from "@/lib/db";
 import { leads } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
+import { getAuthenticatedUser } from "@/lib/auth";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -16,17 +17,17 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const authUser = await getAuthenticatedUser();
   const body = await req.json();
   const note = await createNote(body.leadId, body.content);
 
   // Try to auto-create a calendar event from the note
   let calendarEvent = null;
   try {
-    // Get lead name for event title
     const [lead] = await db
       .select({ firstName: leads.firstName, lastName: leads.lastName, propertyAddress: leads.propertyAddress })
       .from(leads)
-      .where(eq(leads.id, body.leadId));
+      .where(and(eq(leads.id, body.leadId), eq(leads.userId, authUser.effectiveId)));
 
     if (lead) {
       const leadName = [lead.firstName, lead.lastName].filter(Boolean).join(" ") || "Lead";
@@ -42,12 +43,11 @@ export async function POST(req: NextRequest) {
           leadId: body.leadId,
         });
 
-        // Immediately push to Google Calendar
+        // Immediately push to Google Calendar (event has userId from createEvent)
         if (calendarEvent) autoSyncEvent(calendarEvent);
       }
     }
   } catch (err) {
-    // Don't fail the note creation if calendar event fails
     console.error("Auto-calendar from note failed:", err);
   }
 

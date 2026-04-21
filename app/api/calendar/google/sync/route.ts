@@ -1,17 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { calendarEvents, googleCalendarTokens } from "@/lib/db/schema";
-import { eq, isNull, isNotNull, and, or } from "drizzle-orm";
+import { eq, isNull, and, or } from "drizzle-orm";
 import {
   getValidToken,
   pushEventToGoogle,
   pullEventsFromGoogle,
-  deleteEventFromGoogle,
 } from "@/lib/google-calendar";
+import { getAuthenticatedUser } from "@/lib/auth";
 
-// POST: Trigger a two-way sync
+// POST: Trigger a two-way sync for the current user
 export async function POST(req: NextRequest) {
-  const token = await getValidToken();
+  const authUser = await getAuthenticatedUser();
+  const userId = authUser.effectiveId;
+
+  const token = await getValidToken(userId);
   if (!token) {
     return NextResponse.json(
       { error: "Google Calendar not connected" },
@@ -25,14 +28,17 @@ export async function POST(req: NextRequest) {
   let pulled = 0;
   let errors = 0;
 
-  // 1. PUSH: Send unsynced CRM events to Google
+  // 1. PUSH: Send unsynced CRM events to Google (scoped to user)
   const unsyncedEvents = await db
     .select()
     .from(calendarEvents)
     .where(
-      or(
-        isNull(calendarEvents.googleEventId),
-        eq(calendarEvents.syncStatus, "pending")
+      and(
+        eq(calendarEvents.userId, userId),
+        or(
+          isNull(calendarEvents.googleEventId),
+          eq(calendarEvents.syncStatus, "pending")
+        )
       )
     );
 
@@ -55,25 +61,22 @@ export async function POST(req: NextRequest) {
     );
 
     for (const gEvent of googleEvents) {
-      // Check if we already have this event
       const [existing] = await db
         .select()
         .from(calendarEvents)
-        .where(eq(calendarEvents.googleEventId, gEvent.id));
+        .where(and(
+          eq(calendarEvents.googleEventId, gEvent.id),
+          eq(calendarEvents.userId, userId)
+        ));
 
       if (existing) {
-        // Update existing CRM event from Google
         const googleUpdated = new Date(gEvent.updated).getTime();
         const crmUpdated = new Date(existing.updatedAt).getTime();
 
-        // Only update if Google version is newer
         if (googleUpdated > crmUpdated) {
           const startAt = gEvent.start?.dateTime || gEvent.start?.date;
           const endAt = gEvent.end?.dateTime || gEvent.end?.date;
           const allDay = !gEvent.start?.dateTime;
-
-          // Extract local time from Google's datetime (strip timezone offset)
-          // "2026-04-20T18:00:00-04:00" → "2026-04-20T18:00:00"
           const toLocal = (dt: string) => dt.slice(0, 19);
 
           await db
@@ -93,7 +96,6 @@ export async function POST(req: NextRequest) {
           pulled++;
         }
       } else {
-        // Create new CRM event from Google
         if (gEvent.status === "cancelled") continue;
 
         const startAt = gEvent.start?.dateTime || gEvent.start?.date;
@@ -101,11 +103,10 @@ export async function POST(req: NextRequest) {
         const allDay = !gEvent.start?.dateTime;
 
         if (!startAt) continue;
-
-        // Extract local time from Google's datetime (strip timezone offset)
         const toLocal = (dt: string) => dt.slice(0, 19);
 
         await db.insert(calendarEvents).values({
+          userId,
           title: gEvent.summary || "Untitled",
           description: gEvent.description || null,
           eventType: "custom",
@@ -126,7 +127,7 @@ export async function POST(req: NextRequest) {
     errors++;
   }
 
-  // Update last sync time (keep as ISO for Google API compatibility)
+  // Update last sync time
   const nowISO = new Date().toISOString();
   await db
     .update(googleCalendarTokens)

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getLeads, bulkUpdateStatus, bulkAddTag, bulkDeleteLeads } from "@/lib/actions/leads";
 import { db } from "@/lib/db";
 import { leads } from "@/lib/db/schema";
+import { getAuthenticatedUser } from "@/lib/auth";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -39,6 +40,7 @@ export async function PATCH(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const authUser = await getAuthenticatedUser();
     const body = await req.json();
 
     if (!body.propertyAddress || !body.propertyAddress.trim()) {
@@ -51,6 +53,7 @@ export async function POST(req: NextRequest) {
     const [newLead] = await db
       .insert(leads)
       .values({
+        userId: authUser.effectiveId,
         firstName: body.firstName?.trim() || null,
         lastName: body.lastName?.trim() || null,
         propertyAddress: body.propertyAddress.trim(),

@@ -1,14 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { leads, buyers } from "@/lib/db/schema";
-import { ilike, or, sql } from "drizzle-orm";
+import { ilike, or, eq, and } from "drizzle-orm";
+import { getAuthenticatedUser } from "@/lib/auth";
 
 export async function GET(req: NextRequest) {
+  const authUser = await getAuthenticatedUser();
   const { searchParams } = new URL(req.url);
   const q = searchParams.get("q") || "";
   const type = searchParams.get("type"); // "leads" or "buyers"
 
   if (type === "buyers") {
+    const conditions = [eq(buyers.userId, authUser.effectiveId)];
+    if (q) {
+      conditions.push(
+        or(
+          ilike(buyers.name, `%${q}%`),
+          ilike(buyers.company, `%${q}%`)
+        )!
+      );
+    }
+
     const results = await db
       .select({
         id: buyers.id,
@@ -17,20 +29,25 @@ export async function GET(req: NextRequest) {
         phone: buyers.phone,
       })
       .from(buyers)
-      .where(
-        q
-          ? or(
-              ilike(buyers.name, `%${q}%`),
-              ilike(buyers.company, `%${q}%`)
-            )
-          : undefined
-      )
+      .where(and(...conditions))
       .limit(20);
 
     return NextResponse.json(results);
   }
 
   // Default: search leads
+  const conditions = [eq(leads.userId, authUser.effectiveId)];
+  if (q) {
+    conditions.push(
+      or(
+        ilike(leads.firstName, `%${q}%`),
+        ilike(leads.lastName, `%${q}%`),
+        ilike(leads.propertyAddress, `%${q}%`),
+        ilike(leads.phone, `%${q}%`)
+      )!
+    );
+  }
+
   const results = await db
     .select({
       id: leads.id,
@@ -41,16 +58,7 @@ export async function GET(req: NextRequest) {
       phone: leads.phone,
     })
     .from(leads)
-    .where(
-      q
-        ? or(
-            ilike(leads.firstName, `%${q}%`),
-            ilike(leads.lastName, `%${q}%`),
-            ilike(leads.propertyAddress, `%${q}%`),
-            ilike(leads.phone, `%${q}%`)
-          )
-        : undefined
-    )
+    .where(and(...conditions))
     .limit(20);
 
   return NextResponse.json(results);

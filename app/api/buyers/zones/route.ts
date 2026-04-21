@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { buyers } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { geocodeAddress } from "@/lib/geocode";
+import { getAuthenticatedUser } from "@/lib/auth";
 
 interface GeocodedArea {
   name: string;
@@ -15,7 +16,9 @@ interface GeocodedArea {
  * GET - Return all buyers with their geocoded zone data for the map
  */
 export async function GET() {
-  const allBuyers = await db.select().from(buyers);
+  const authUser = await getAuthenticatedUser();
+  const allBuyers = await db.select().from(buyers)
+    .where(eq(buyers.userId, authUser.effectiveId));
 
   const zones = allBuyers
     .map((buyer) => {
@@ -43,6 +46,7 @@ export async function GET() {
  * Body: { buyerId: number }
  */
 export async function POST(req: NextRequest) {
+  const authUser = await getAuthenticatedUser();
   const body = await req.json();
   const buyerId = body.buyerId;
 
@@ -50,8 +54,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "buyerId required" }, { status: 400 });
   }
 
-  // Fetch the buyer
-  const [buyer] = await db.select().from(buyers).where(eq(buyers.id, buyerId));
+  // Fetch the buyer (scoped to user)
+  const [buyer] = await db.select().from(buyers)
+    .where(and(eq(buyers.id, buyerId), eq(buyers.userId, authUser.effectiveId)));
   if (!buyer) {
     return NextResponse.json({ error: "Buyer not found" }, { status: 404 });
   }
@@ -63,7 +68,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ geocoded: 0 });
   }
 
-  // Parse areas: split by comma, detect type (zip, city, county)
   const areaParts = areasStr
     .split(",")
     .map((s: string) => s.trim())
@@ -72,19 +76,16 @@ export async function POST(req: NextRequest) {
   const geocodedAreas: GeocodedArea[] = [];
 
   for (const area of areaParts) {
-    // Detect type
     const isZip = /^\d{5}(-\d{4})?$/.test(area);
     const isCounty = /county$/i.test(area);
     const type: GeocodedArea["type"] = isZip ? "zip" : isCounty ? "county" : "city";
 
-    // Build geocode query
     let query: string;
     if (isZip) {
       query = `${area}, USA`;
     } else if (isCounty) {
       query = `${area}, USA`;
     } else {
-      // Could be a city name - try with state context from other areas
       query = `${area}, USA`;
     }
 
@@ -98,11 +99,9 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Rate limit for Nominatim
     await new Promise((resolve) => setTimeout(resolve, 1100));
   }
 
-  // Update buyer with geocoded areas
   const updatedCriteria = {
     ...criteria,
     geocodedAreas,
@@ -111,7 +110,7 @@ export async function POST(req: NextRequest) {
   await db
     .update(buyers)
     .set({ buyCriteria: JSON.stringify(updatedCriteria) })
-    .where(eq(buyers.id, buyerId));
+    .where(and(eq(buyers.id, buyerId), eq(buyers.userId, authUser.effectiveId)));
 
   return NextResponse.json({ geocoded: geocodedAreas.length, total: areaParts.length });
 }

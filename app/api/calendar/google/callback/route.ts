@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { exchangeCodeForTokens } from "@/lib/google-calendar";
 import { db } from "@/lib/db";
 import { googleCalendarTokens } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
+import { getAuthenticatedUser } from "@/lib/auth";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -23,19 +25,21 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    const authUser = await getAuthenticatedUser();
     const tokens = await exchangeCodeForTokens(code);
 
-    // Clear any existing tokens (single-user CRM)
-    await db.delete(googleCalendarTokens);
+    // Clear existing tokens for this user only
+    await db.delete(googleCalendarTokens).where(eq(googleCalendarTokens.userId, authUser.effectiveId));
 
     // Store new tokens
     const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString();
 
     await db.insert(googleCalendarTokens).values({
+      userId: authUser.effectiveId,
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token,
       expiresAt,
-      calendarId: "primary", // Default to primary calendar
+      calendarId: "primary",
       syncEnabled: 1,
     });
 

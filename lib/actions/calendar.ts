@@ -2,7 +2,8 @@
 
 import { db } from "@/lib/db";
 import { calendarEvents, leads, buyers } from "@/lib/db/schema";
-import { eq, and, gte, lte, lt, or, desc, sql } from "drizzle-orm";
+import { eq, and, gte, lte, lt, or, sql } from "drizzle-orm";
+import { getAuthenticatedUser } from "@/lib/auth";
 
 export async function getEvents(params: {
   start: string;
@@ -10,19 +11,16 @@ export async function getEvents(params: {
   type?: string;
   status?: string;
 }) {
+  const authUser = await getAuthenticatedUser();
+
   // Normalize date range to consistent local time strings for comparison
-  // FullCalendar may send date-only strings ("2026-03-30") or datetime strings
   const normalizedStart = params.start.length === 10 ? params.start + "T00:00:00" : params.start.slice(0, 19);
   const normalizedEnd = params.end.length === 10 ? params.end + "T23:59:59" : params.end.slice(0, 19);
 
-  // Include events that:
-  // 1. Start within the visible range, OR
-  // 2. Span into the visible range (started before but end after range start)
   const conditions = [
+    eq(calendarEvents.userId, authUser.effectiveId),
     or(
-      // Event starts within range (end is exclusive from FullCalendar)
       and(gte(calendarEvents.startAt, normalizedStart), lt(calendarEvents.startAt, normalizedEnd)),
-      // Multi-day event spans into range
       and(lte(calendarEvents.startAt, normalizedStart), gte(calendarEvents.endAt, normalizedStart))
     ),
   ];
@@ -51,7 +49,6 @@ export async function getEvents(params: {
       syncStatus: calendarEvents.syncStatus,
       createdAt: calendarEvents.createdAt,
       updatedAt: calendarEvents.updatedAt,
-      // Lead info
       leadFirstName: leads.firstName,
       leadLastName: leads.lastName,
       leadPhone: leads.phone,
@@ -61,7 +58,6 @@ export async function getEvents(params: {
       leadState: leads.propertyState,
       leadZip: leads.propertyZip,
       leadStatus: leads.status,
-      // Buyer info
       buyerName: buyers.name,
       buyerCompany: buyers.company,
       buyerPhone: buyers.phone,
@@ -77,6 +73,8 @@ export async function getEvents(params: {
 }
 
 export async function getEventById(id: number) {
+  const authUser = await getAuthenticatedUser();
+
   const [event] = await db
     .select({
       id: calendarEvents.id,
@@ -111,7 +109,7 @@ export async function getEventById(id: number) {
     .from(calendarEvents)
     .leftJoin(leads, eq(calendarEvents.leadId, leads.id))
     .leftJoin(buyers, eq(calendarEvents.buyerId, buyers.id))
-    .where(eq(calendarEvents.id, id));
+    .where(and(eq(calendarEvents.id, id), eq(calendarEvents.userId, authUser.effectiveId)));
 
   return event || null;
 }
@@ -128,9 +126,12 @@ export async function createEvent(data: {
   leadId?: number | null;
   buyerId?: number | null;
 }) {
+  const authUser = await getAuthenticatedUser();
+
   const [event] = await db
     .insert(calendarEvents)
     .values({
+      userId: authUser.effectiveId,
       title: data.title,
       description: data.description || null,
       eventType: data.eventType,
@@ -164,6 +165,8 @@ export async function updateEvent(
     syncStatus: string | null;
   }>
 ) {
+  const authUser = await getAuthenticatedUser();
+
   const updateData: Record<string, unknown> = {
     updatedAt: new Date().toLocaleString("sv-SE").replace(" ", "T"),
   };
@@ -184,20 +187,21 @@ export async function updateEvent(
   const [event] = await db
     .update(calendarEvents)
     .set(updateData)
-    .where(eq(calendarEvents.id, id))
+    .where(and(eq(calendarEvents.id, id), eq(calendarEvents.userId, authUser.effectiveId)))
     .returning();
 
   return event;
 }
 
 export async function deleteEvent(id: number) {
-  await db.delete(calendarEvents).where(eq(calendarEvents.id, id));
+  const authUser = await getAuthenticatedUser();
+  await db.delete(calendarEvents)
+    .where(and(eq(calendarEvents.id, id), eq(calendarEvents.userId, authUser.effectiveId)));
 }
 
 export async function getUpcomingEvents(limit = 5) {
-  // Use a date far enough in the past to catch all upcoming events
-  // Since events are stored in local time and server is UTC,
-  // subtract 24h to ensure we don't miss any
+  const authUser = await getAuthenticatedUser();
+
   const pad = (n: number) => String(n).padStart(2, "0");
   const d = new Date(Date.now() - 24 * 60 * 60 * 1000);
   const now = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00`;
@@ -224,6 +228,7 @@ export async function getUpcomingEvents(limit = 5) {
     .leftJoin(buyers, eq(calendarEvents.buyerId, buyers.id))
     .where(
       and(
+        eq(calendarEvents.userId, authUser.effectiveId),
         gte(calendarEvents.startAt, now),
         eq(calendarEvents.status, "scheduled")
       )

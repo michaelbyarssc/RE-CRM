@@ -6,8 +6,18 @@ export async function runMigrations() {
   const sql = postgres(connectionString, { prepare: false });
 
   await sql.unsafe(`
+    CREATE TABLE IF NOT EXISTS user_profiles (
+      id TEXT PRIMARY KEY,
+      email TEXT NOT NULL,
+      full_name TEXT,
+      role TEXT NOT NULL DEFAULT 'user',
+      created_at TEXT NOT NULL DEFAULT NOW()::text,
+      updated_at TEXT NOT NULL DEFAULT NOW()::text
+    );
+
     CREATE TABLE IF NOT EXISTS leads (
       id SERIAL PRIMARY KEY,
+      user_id TEXT REFERENCES user_profiles(id),
       first_name TEXT,
       last_name TEXT,
       property_address TEXT NOT NULL,
@@ -31,7 +41,8 @@ export async function runMigrations() {
 
     CREATE TABLE IF NOT EXISTS tags (
       id SERIAL PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
+      user_id TEXT REFERENCES user_profiles(id),
+      name TEXT NOT NULL,
       color TEXT NOT NULL DEFAULT '#6B7280'
     );
 
@@ -50,6 +61,7 @@ export async function runMigrations() {
 
     CREATE TABLE IF NOT EXISTS sequences (
       id SERIAL PRIMARY KEY,
+      user_id TEXT REFERENCES user_profiles(id),
       name TEXT NOT NULL,
       description TEXT,
       is_active INTEGER NOT NULL DEFAULT 1,
@@ -96,6 +108,7 @@ export async function runMigrations() {
 
     CREATE TABLE IF NOT EXISTS csv_imports (
       id SERIAL PRIMARY KEY,
+      user_id TEXT REFERENCES user_profiles(id),
       filename TEXT NOT NULL,
       total_rows INTEGER,
       imported_rows INTEGER,
@@ -106,6 +119,7 @@ export async function runMigrations() {
 
     CREATE TABLE IF NOT EXISTS buyers (
       id SERIAL PRIMARY KEY,
+      user_id TEXT REFERENCES user_profiles(id),
       name TEXT NOT NULL,
       company TEXT,
       phone TEXT,
@@ -126,13 +140,15 @@ export async function runMigrations() {
 
     CREATE TABLE IF NOT EXISTS settings (
       id SERIAL PRIMARY KEY,
-      key TEXT NOT NULL UNIQUE,
+      user_id TEXT REFERENCES user_profiles(id),
+      key TEXT NOT NULL,
       value TEXT NOT NULL,
       updated_at TEXT NOT NULL DEFAULT NOW()::text
     );
 
     CREATE TABLE IF NOT EXISTS calendar_events (
       id SERIAL PRIMARY KEY,
+      user_id TEXT REFERENCES user_profiles(id),
       title TEXT NOT NULL,
       description TEXT,
       event_type TEXT NOT NULL DEFAULT 'custom',
@@ -152,6 +168,7 @@ export async function runMigrations() {
 
     CREATE TABLE IF NOT EXISTS google_calendar_tokens (
       id SERIAL PRIMARY KEY,
+      user_id TEXT REFERENCES user_profiles(id),
       access_token TEXT NOT NULL,
       refresh_token TEXT NOT NULL,
       expires_at TEXT NOT NULL,
@@ -165,31 +182,93 @@ export async function runMigrations() {
     CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status);
     CREATE INDEX IF NOT EXISTS idx_leads_zip ON leads(property_zip);
     CREATE INDEX IF NOT EXISTS idx_leads_state_city ON leads(property_state, property_city);
+    CREATE INDEX IF NOT EXISTS idx_leads_user ON leads(user_id);
     CREATE INDEX IF NOT EXISTS idx_lead_sequences_next ON lead_sequences(next_action_at);
     CREATE INDEX IF NOT EXISTS idx_notes_lead ON notes(lead_id);
     CREATE INDEX IF NOT EXISTS idx_call_log_lead ON call_log(lead_id);
     CREATE INDEX IF NOT EXISTS idx_calendar_events_start ON calendar_events(start_at);
     CREATE INDEX IF NOT EXISTS idx_calendar_events_lead ON calendar_events(lead_id);
     CREATE INDEX IF NOT EXISTS idx_calendar_events_buyer ON calendar_events(buyer_id);
+    CREATE INDEX IF NOT EXISTS idx_calendar_events_user ON calendar_events(user_id);
+    CREATE INDEX IF NOT EXISTS idx_buyers_user ON buyers(user_id);
+    CREATE INDEX IF NOT EXISTS idx_tags_user ON tags(user_id);
+    CREATE INDEX IF NOT EXISTS idx_sequences_user ON sequences(user_id);
+    CREATE INDEX IF NOT EXISTS idx_settings_user ON settings(user_id);
   `);
 
-  // Seed default tags
+  // Add user_id columns to existing tables (safe if already exist)
+  await sql.unsafe(`
+    ALTER TABLE leads ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES user_profiles(id);
+    ALTER TABLE tags ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES user_profiles(id);
+    ALTER TABLE sequences ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES user_profiles(id);
+    ALTER TABLE csv_imports ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES user_profiles(id);
+    ALTER TABLE buyers ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES user_profiles(id);
+    ALTER TABLE settings ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES user_profiles(id);
+    ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES user_profiles(id);
+    ALTER TABLE google_calendar_tokens ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES user_profiles(id);
+  `);
+
+  // Drop old unique constraints that need to become composite
+  await sql.unsafe(`
+    ALTER TABLE tags DROP CONSTRAINT IF EXISTS tags_name_unique;
+    ALTER TABLE tags DROP CONSTRAINT IF EXISTS tags_name_key;
+    ALTER TABLE settings DROP CONSTRAINT IF EXISTS settings_key_unique;
+    ALTER TABLE settings DROP CONSTRAINT IF EXISTS settings_key_key;
+  `);
+
+  // Add composite unique constraints
+  await sql.unsafe(`
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'tags_name_user_unique') THEN
+        ALTER TABLE tags ADD CONSTRAINT tags_name_user_unique UNIQUE (name, user_id);
+      END IF;
+    END $$;
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'settings_key_user_unique') THEN
+        ALTER TABLE settings ADD CONSTRAINT settings_key_user_unique UNIQUE (key, user_id);
+      END IF;
+    END $$;
+  `);
+
+  // Seed default tags only if none exist
   const existing = await sql`SELECT COUNT(*) as count FROM tags`;
   if (Number(existing[0].count) === 0) {
-    const defaultTags = [
-      ["Hot Lead", "#EF4444"],
-      ["Vacant", "#F59E0B"],
-      ["Absentee Owner", "#8B5CF6"],
-      ["Pre-Foreclosure", "#EC4899"],
-      ["Probate", "#6366F1"],
-      ["Tax Lien", "#F97316"],
-      ["Motivated Seller", "#10B981"],
-      ["Cash Buyer", "#06B6D4"],
-    ];
-    for (const [name, color] of defaultTags) {
-      await sql`INSERT INTO tags (name, color) VALUES (${name}, ${color})`;
-    }
+    // Tags will be seeded per-user when they first log in
   }
+
+  await sql.end();
+  return { success: true };
+}
+
+/**
+ * Backfill existing data to assign all rows to a specific user.
+ * Call this once after the first admin user is established.
+ */
+export async function backfillUserData(userId: string) {
+  const sql = postgres(connectionString, { prepare: false });
+
+  await sql.unsafe(`
+    UPDATE leads SET user_id = '${userId}' WHERE user_id IS NULL;
+    UPDATE tags SET user_id = '${userId}' WHERE user_id IS NULL;
+    UPDATE sequences SET user_id = '${userId}' WHERE user_id IS NULL;
+    UPDATE csv_imports SET user_id = '${userId}' WHERE user_id IS NULL;
+    UPDATE buyers SET user_id = '${userId}' WHERE user_id IS NULL;
+    UPDATE settings SET user_id = '${userId}' WHERE user_id IS NULL;
+    UPDATE calendar_events SET user_id = '${userId}' WHERE user_id IS NULL;
+    UPDATE google_calendar_tokens SET user_id = '${userId}' WHERE user_id IS NULL;
+  `);
+
+  // Now enforce NOT NULL
+  await sql.unsafe(`
+    ALTER TABLE leads ALTER COLUMN user_id SET NOT NULL;
+    ALTER TABLE tags ALTER COLUMN user_id SET NOT NULL;
+    ALTER TABLE sequences ALTER COLUMN user_id SET NOT NULL;
+    ALTER TABLE csv_imports ALTER COLUMN user_id SET NOT NULL;
+    ALTER TABLE buyers ALTER COLUMN user_id SET NOT NULL;
+    ALTER TABLE settings ALTER COLUMN user_id SET NOT NULL;
+    ALTER TABLE calendar_events ALTER COLUMN user_id SET NOT NULL;
+    ALTER TABLE google_calendar_tokens ALTER COLUMN user_id SET NOT NULL;
+  `);
 
   await sql.end();
   return { success: true };

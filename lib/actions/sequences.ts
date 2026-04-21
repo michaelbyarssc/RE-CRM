@@ -3,9 +3,14 @@
 import { db } from "@/lib/db";
 import { sequences, sequenceSteps, leadSequences, leads, notes } from "@/lib/db/schema";
 import { eq, sql, and } from "drizzle-orm";
+import { getAuthenticatedUser } from "@/lib/auth";
 
 export async function getSequences() {
-  const seqs = await db.select().from(sequences).orderBy(sql`${sequences.createdAt} DESC`);
+  const authUser = await getAuthenticatedUser();
+
+  const seqs = await db.select().from(sequences)
+    .where(eq(sequences.userId, authUser.effectiveId))
+    .orderBy(sql`${sequences.createdAt} DESC`);
 
   const result = [];
   for (const seq of seqs) {
@@ -27,7 +32,11 @@ export async function getSequences() {
 }
 
 export async function getSequence(id: number) {
-  const [seq] = await db.select().from(sequences).where(eq(sequences.id, id)).limit(1);
+  const authUser = await getAuthenticatedUser();
+
+  const [seq] = await db.select().from(sequences)
+    .where(and(eq(sequences.id, id), eq(sequences.userId, authUser.effectiveId)))
+    .limit(1);
   if (!seq) return null;
 
   const steps = await db
@@ -40,16 +49,21 @@ export async function getSequence(id: number) {
 }
 
 export async function createSequence(name: string, description: string) {
-  const [seq] = await db.insert(sequences).values({ name, description }).returning();
+  const authUser = await getAuthenticatedUser();
+  const [seq] = await db.insert(sequences).values({ name, description, userId: authUser.effectiveId }).returning();
   return seq;
 }
 
 export async function updateSequence(id: number, data: { name?: string; description?: string; isActive?: number }) {
-  await db.update(sequences).set(data).where(eq(sequences.id, id));
+  const authUser = await getAuthenticatedUser();
+  await db.update(sequences).set(data)
+    .where(and(eq(sequences.id, id), eq(sequences.userId, authUser.effectiveId)));
 }
 
 export async function deleteSequence(id: number) {
-  await db.delete(sequences).where(eq(sequences.id, id));
+  const authUser = await getAuthenticatedUser();
+  await db.delete(sequences)
+    .where(and(eq(sequences.id, id), eq(sequences.userId, authUser.effectiveId)));
 }
 
 export async function addStep(sequenceId: number, step: {
@@ -58,20 +72,45 @@ export async function addStep(sequenceId: number, step: {
   actionType: string;
   template: string;
 }) {
+  const authUser = await getAuthenticatedUser();
+  // Verify sequence belongs to user
+  const [seq] = await db.select({ id: sequences.id }).from(sequences)
+    .where(and(eq(sequences.id, sequenceId), eq(sequences.userId, authUser.effectiveId))).limit(1);
+  if (!seq) throw new Error("Sequence not found");
+
   const [newStep] = await db.insert(sequenceSteps).values({ sequenceId, ...step }).returning();
   return newStep;
 }
 
 export async function updateStep(id: number, data: Partial<typeof sequenceSteps.$inferInsert>) {
+  const authUser = await getAuthenticatedUser();
+  // Verify step's sequence belongs to user
+  const [step] = await db.select().from(sequenceSteps).where(eq(sequenceSteps.id, id)).limit(1);
+  if (!step) return;
+  const [seq] = await db.select({ id: sequences.id }).from(sequences)
+    .where(and(eq(sequences.id, step.sequenceId), eq(sequences.userId, authUser.effectiveId))).limit(1);
+  if (!seq) return;
+
   await db.update(sequenceSteps).set(data).where(eq(sequenceSteps.id, id));
 }
 
 export async function deleteStep(id: number) {
+  const authUser = await getAuthenticatedUser();
+  const [step] = await db.select().from(sequenceSteps).where(eq(sequenceSteps.id, id)).limit(1);
+  if (!step) return;
+  const [seq] = await db.select({ id: sequences.id }).from(sequences)
+    .where(and(eq(sequences.id, step.sequenceId), eq(sequences.userId, authUser.effectiveId))).limit(1);
+  if (!seq) return;
+
   await db.delete(sequenceSteps).where(eq(sequenceSteps.id, id));
 }
 
 export async function enrollLeads(leadIds: number[], sequenceId: number) {
-  const [seq] = await db.select().from(sequences).where(eq(sequences.id, sequenceId)).limit(1);
+  const authUser = await getAuthenticatedUser();
+
+  // Verify sequence belongs to user
+  const [seq] = await db.select().from(sequences)
+    .where(and(eq(sequences.id, sequenceId), eq(sequences.userId, authUser.effectiveId))).limit(1);
   if (!seq) return;
 
   const [firstStep] = await db
@@ -82,6 +121,11 @@ export async function enrollLeads(leadIds: number[], sequenceId: number) {
     .limit(1);
 
   for (const leadId of leadIds) {
+    // Verify lead belongs to user
+    const [lead] = await db.select({ id: leads.id }).from(leads)
+      .where(and(eq(leads.id, leadId), eq(leads.userId, authUser.effectiveId))).limit(1);
+    if (!lead) continue;
+
     // Check if already enrolled
     const [existing] = await db
       .select()
@@ -100,6 +144,7 @@ export async function enrollLeads(leadIds: number[], sequenceId: number) {
   }
 }
 
+// System process — runs across all users (no user scoping)
 export async function processSequences() {
   const now = new Date().toISOString();
   const dueItems = await db
@@ -118,18 +163,15 @@ export async function processSequences() {
 
     const currentStep = steps[item.currentStep];
     if (!currentStep) {
-      // All steps completed
       await db.update(leadSequences)
         .set({ status: "completed" })
         .where(eq(leadSequences.id, item.id));
       continue;
     }
 
-    // Get lead info for template
     const [lead] = await db.select().from(leads).where(eq(leads.id, item.leadId)).limit(1);
     if (!lead) continue;
 
-    // Replace template placeholders
     let content = currentStep.template || `Follow-up: ${currentStep.actionType}`;
     content = content
       .replace(/\{\{first_name\}\}/g, lead.firstName || "")
@@ -137,14 +179,12 @@ export async function processSequences() {
       .replace(/\{\{property_address\}\}/g, lead.propertyAddress || "")
       .replace(/\{\{phone\}\}/g, lead.phone || "");
 
-    // Create a task note
     await db.insert(notes)
       .values({
         leadId: item.leadId,
         content: `[SEQUENCE TASK - ${currentStep.actionType.toUpperCase()}] ${content}`,
       });
 
-    // Advance to next step
     const nextStepIndex = item.currentStep + 1;
     const nextStep = steps[nextStepIndex];
 

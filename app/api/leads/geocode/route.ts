@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { leads } from "@/lib/db/schema";
-import { isNull, sql } from "drizzle-orm";
-import { eq } from "drizzle-orm";
+import { isNull, sql, and, eq } from "drizzle-orm";
 import { geocodeAddress } from "@/lib/geocode";
+import { getAuthenticatedUser } from "@/lib/auth";
 
 export async function POST() {
-  // Find leads without coordinates
+  const authUser = await getAuthenticatedUser();
+  const userId = authUser.effectiveId;
+
+  // Find leads without coordinates (scoped to user)
   const ungeocodedLeads = await db
     .select({
       id: leads.id,
@@ -16,7 +19,7 @@ export async function POST() {
       propertyZip: leads.propertyZip,
     })
     .from(leads)
-    .where(isNull(leads.latitude))
+    .where(and(eq(leads.userId, userId), isNull(leads.latitude)))
     .limit(50);
 
   if (ungeocodedLeads.length === 0) {
@@ -49,7 +52,7 @@ export async function POST() {
   const [remaining] = await db
     .select({ count: sql<number>`count(*)` })
     .from(leads)
-    .where(isNull(leads.latitude));
+    .where(and(eq(leads.userId, userId), isNull(leads.latitude)));
 
   return NextResponse.json({
     geocoded,
@@ -58,7 +61,10 @@ export async function POST() {
 }
 
 export async function GET() {
-  // Return all geocoded leads for the map
+  const authUser = await getAuthenticatedUser();
+  const userId = authUser.effectiveId;
+
+  // Return all geocoded leads for the map (scoped to user)
   const geocodedLeads = await db
     .select({
       id: leads.id,
@@ -74,16 +80,20 @@ export async function GET() {
       longitude: leads.longitude,
     })
     .from(leads)
-    .where(sql`${leads.latitude} IS NOT NULL AND ${leads.longitude} IS NOT NULL`);
+    .where(and(
+      eq(leads.userId, userId),
+      sql`${leads.latitude} IS NOT NULL AND ${leads.longitude} IS NOT NULL`
+    ));
 
   const [total] = await db
     .select({ count: sql<number>`count(*)` })
-    .from(leads);
+    .from(leads)
+    .where(eq(leads.userId, userId));
 
   const [ungeocoded] = await db
     .select({ count: sql<number>`count(*)` })
     .from(leads)
-    .where(isNull(leads.latitude));
+    .where(and(eq(leads.userId, userId), isNull(leads.latitude)));
 
   return NextResponse.json({
     leads: geocodedLeads,

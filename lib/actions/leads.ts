@@ -3,6 +3,7 @@
 import { db } from "@/lib/db";
 import { leads, tags, leadTags, csvImports } from "@/lib/db/schema";
 import { eq, like, or, inArray, sql, and } from "drizzle-orm";
+import { getAuthenticatedUser } from "@/lib/auth";
 
 export type Lead = typeof leads.$inferSelect;
 export type Tag = typeof tags.$inferSelect;
@@ -14,11 +15,14 @@ export async function getLeads(params?: {
   page?: number;
   pageSize?: number;
 }) {
+  const authUser = await getAuthenticatedUser();
+  const userId = authUser.effectiveId;
+
   const page = params?.page ?? 1;
   const pageSize = params?.pageSize ?? 50;
   const offset = (page - 1) * pageSize;
 
-  let conditions = [];
+  let conditions = [eq(leads.userId, userId)];
 
   if (params?.search) {
     const term = `%${params.search}%`;
@@ -30,7 +34,7 @@ export async function getLeads(params?: {
         like(leads.propertyCity, term),
         like(leads.phone, term),
         like(leads.email, term)
-      )
+      )!
     );
   }
 
@@ -38,7 +42,7 @@ export async function getLeads(params?: {
     conditions.push(eq(leads.status, params.status));
   }
 
-  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+  const whereClause = and(...conditions);
 
   const rows = await db
     .select()
@@ -74,7 +78,10 @@ export async function getLeads(params?: {
 }
 
 export async function getLead(id: number) {
-  const [lead] = await db.select().from(leads).where(eq(leads.id, id)).limit(1);
+  const authUser = await getAuthenticatedUser();
+  const [lead] = await db.select().from(leads)
+    .where(and(eq(leads.id, id), eq(leads.userId, authUser.effectiveId)))
+    .limit(1);
   if (!lead) return null;
 
   const leadTagRows = await db
@@ -87,25 +94,34 @@ export async function getLead(id: number) {
 }
 
 export async function updateLeadStatus(id: number, status: string) {
+  const authUser = await getAuthenticatedUser();
   await db.update(leads)
     .set({ status, updatedAt: new Date().toISOString() })
-    .where(eq(leads.id, id));
+    .where(and(eq(leads.id, id), eq(leads.userId, authUser.effectiveId)));
 }
 
 export async function updateLead(id: number, data: Partial<typeof leads.$inferInsert>) {
+  const authUser = await getAuthenticatedUser();
   await db.update(leads)
     .set({ ...data, updatedAt: new Date().toISOString() })
-    .where(eq(leads.id, id));
+    .where(and(eq(leads.id, id), eq(leads.userId, authUser.effectiveId)));
 }
 
 export async function bulkUpdateStatus(ids: number[], status: string) {
+  const authUser = await getAuthenticatedUser();
   await db.update(leads)
     .set({ status, updatedAt: new Date().toISOString() })
-    .where(inArray(leads.id, ids));
+    .where(and(inArray(leads.id, ids), eq(leads.userId, authUser.effectiveId)));
 }
 
 export async function bulkAddTag(leadIds: number[], tagId: number) {
-  for (const leadId of leadIds) {
+  const authUser = await getAuthenticatedUser();
+  // Verify leads belong to user
+  const userLeads = await db.select({ id: leads.id }).from(leads)
+    .where(and(inArray(leads.id, leadIds), eq(leads.userId, authUser.effectiveId)));
+  const validIds = userLeads.map((l) => l.id);
+
+  for (const leadId of validIds) {
     try {
       await db.insert(leadTags).values({ leadId, tagId });
     } catch {
@@ -115,15 +131,27 @@ export async function bulkAddTag(leadIds: number[], tagId: number) {
 }
 
 export async function bulkDeleteLeads(ids: number[]) {
-  await db.delete(leads).where(inArray(leads.id, ids));
+  const authUser = await getAuthenticatedUser();
+  await db.delete(leads).where(and(inArray(leads.id, ids), eq(leads.userId, authUser.effectiveId)));
 }
 
 export async function removeTagFromLead(leadId: number, tagId: number) {
+  const authUser = await getAuthenticatedUser();
+  // Verify lead belongs to user
+  const [lead] = await db.select({ id: leads.id }).from(leads)
+    .where(and(eq(leads.id, leadId), eq(leads.userId, authUser.effectiveId))).limit(1);
+  if (!lead) return;
+
   await db.delete(leadTags)
     .where(and(eq(leadTags.leadId, leadId), eq(leadTags.tagId, tagId)));
 }
 
 export async function addTagToLead(leadId: number, tagId: number) {
+  const authUser = await getAuthenticatedUser();
+  const [lead] = await db.select({ id: leads.id }).from(leads)
+    .where(and(eq(leads.id, leadId), eq(leads.userId, authUser.effectiveId))).limit(1);
+  if (!lead) return;
+
   try {
     await db.insert(leadTags).values({ leadId, tagId });
   } catch {
@@ -132,11 +160,13 @@ export async function addTagToLead(leadId: number, tagId: number) {
 }
 
 export async function getAllTags() {
-  return await db.select().from(tags);
+  const authUser = await getAuthenticatedUser();
+  return await db.select().from(tags).where(eq(tags.userId, authUser.effectiveId));
 }
 
 export async function createTag(name: string, color: string) {
-  const [tag] = await db.insert(tags).values({ name, color }).returning();
+  const authUser = await getAuthenticatedUser();
+  const [tag] = await db.insert(tags).values({ name, color, userId: authUser.effectiveId }).returning();
   return tag;
 }
 
@@ -145,6 +175,8 @@ export async function importLeads(
   columnMapping: Record<string, string>,
   filename: string
 ) {
+  const authUser = await getAuthenticatedUser();
+  const userId = authUser.effectiveId;
   let imported = 0;
   let skipped = 0;
 
@@ -166,12 +198,15 @@ export async function importLeads(
       continue;
     }
 
-    // Check for duplicate by property address
+    // Check for duplicate by property address (scoped to user)
     const normalized = mapped.propertyAddress.toLowerCase().replace(/\s+/g, " ").trim();
     const [existing] = await db
       .select({ id: leads.id })
       .from(leads)
-      .where(sql`lower(replace(${leads.propertyAddress}, '  ', ' ')) = ${normalized}`)
+      .where(and(
+        eq(leads.userId, userId),
+        sql`lower(replace(${leads.propertyAddress}, '  ', ' ')) = ${normalized}`
+      ))
       .limit(1);
 
     if (existing) {
@@ -181,6 +216,7 @@ export async function importLeads(
 
     await db.insert(leads)
       .values({
+        userId,
         firstName: mapped.firstName || null,
         lastName: mapped.lastName || null,
         propertyAddress: mapped.propertyAddress,
@@ -203,6 +239,7 @@ export async function importLeads(
   // Record import
   await db.insert(csvImports)
     .values({
+      userId,
       filename,
       totalRows: data.length,
       importedRows: imported,
@@ -214,12 +251,14 @@ export async function importLeads(
 }
 
 export async function getLeadCounts() {
+  const authUser = await getAuthenticatedUser();
   const results = await db
     .select({
       status: leads.status,
       count: sql<number>`count(*)`,
     })
     .from(leads)
+    .where(eq(leads.userId, authUser.effectiveId))
     .groupBy(leads.status);
 
   const total = results.reduce((sum, r) => sum + r.count, 0);

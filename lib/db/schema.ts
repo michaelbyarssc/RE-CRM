@@ -1,7 +1,17 @@
 import { pgTable, text, integer, real, serial } from "drizzle-orm/pg-core";
 
+export const userProfiles = pgTable("user_profiles", {
+  id: text("id").primaryKey(),
+  email: text("email").notNull(),
+  fullName: text("full_name"),
+  role: text("role").notNull().default("user"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+});
+
 export const leads = pgTable("leads", {
   id: serial("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => userProfiles.id),
   firstName: text("first_name"),
   lastName: text("last_name"),
   propertyAddress: text("property_address").notNull(),
@@ -25,7 +35,8 @@ export const leads = pgTable("leads", {
 
 export const tags = pgTable("tags", {
   id: serial("id").primaryKey(),
-  name: text("name").notNull().unique(),
+  userId: text("user_id").notNull().references(() => userProfiles.id),
+  name: text("name").notNull(),
   color: text("color").default("#6B7280").notNull(),
 });
 
@@ -43,6 +54,7 @@ export const notes = pgTable("notes", {
 
 export const sequences = pgTable("sequences", {
   id: serial("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => userProfiles.id),
   name: text("name").notNull(),
   description: text("description"),
   isActive: integer("is_active").default(1).notNull(),
@@ -89,6 +101,7 @@ export const skipTraceResults = pgTable("skip_trace_results", {
 
 export const csvImports = pgTable("csv_imports", {
   id: serial("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => userProfiles.id),
   filename: text("filename").notNull(),
   totalRows: integer("total_rows"),
   importedRows: integer("imported_rows"),
@@ -99,6 +112,7 @@ export const csvImports = pgTable("csv_imports", {
 
 export const buyers = pgTable("buyers", {
   id: serial("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => userProfiles.id),
   name: text("name").notNull(),
   company: text("company"),
   phone: text("phone"),
@@ -119,13 +133,15 @@ export const documents = pgTable("documents", {
 
 export const settings = pgTable("settings", {
   id: serial("id").primaryKey(),
-  key: text("key").notNull().unique(),
+  userId: text("user_id").notNull().references(() => userProfiles.id),
+  key: text("key").notNull(),
   value: text("value").notNull(),
   updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
 
 export const calendarEvents = pgTable("calendar_events", {
   id: serial("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => userProfiles.id),
   title: text("title").notNull(),
   description: text("description"),
   eventType: text("event_type").notNull().default("custom"),
@@ -145,6 +161,7 @@ export const calendarEvents = pgTable("calendar_events", {
 
 export const googleCalendarTokens = pgTable("google_calendar_tokens", {
   id: serial("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => userProfiles.id),
   accessToken: text("access_token").notNull(),
   refreshToken: text("refresh_token").notNull(),
   expiresAt: text("expires_at").notNull(),

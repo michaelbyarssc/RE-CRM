@@ -2,9 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { getGoogleAuthUrl, getValidToken } from "@/lib/google-calendar";
 import { db } from "@/lib/db";
 import { googleCalendarTokens } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
+import { getAuthenticatedUser } from "@/lib/auth";
 
 // GET: Check connection status or start OAuth flow
 export async function GET(req: NextRequest) {
+  const authUser = await getAuthenticatedUser();
   const { searchParams } = new URL(req.url);
   const action = searchParams.get("action");
 
@@ -22,7 +25,6 @@ export async function GET(req: NextRequest) {
   }
 
   if (action === "connect") {
-    // Redirect to Google OAuth
     if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
       return NextResponse.json(
         { error: "Google Calendar is not configured. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to environment variables." },
@@ -33,8 +35,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Return connection status
-  const token = await getValidToken();
+  // Return connection status for this user
+  const token = await getValidToken(authUser.effectiveId);
   return NextResponse.json({
     connected: !!token,
     calendarId: token?.tokenRow.calendarId || null,
@@ -43,8 +45,9 @@ export async function GET(req: NextRequest) {
   });
 }
 
-// DELETE: Disconnect Google Calendar
+// DELETE: Disconnect Google Calendar for this user
 export async function DELETE() {
-  await db.delete(googleCalendarTokens);
+  const authUser = await getAuthenticatedUser();
+  await db.delete(googleCalendarTokens).where(eq(googleCalendarTokens.userId, authUser.effectiveId));
   return NextResponse.json({ ok: true });
 }

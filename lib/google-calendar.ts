@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { googleCalendarTokens, calendarEvents } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID!;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET!;
@@ -73,8 +73,15 @@ export async function refreshAccessToken(refreshToken: string) {
   }>;
 }
 
-export async function getValidToken(): Promise<{ accessToken: string; tokenRow: typeof googleCalendarTokens.$inferSelect } | null> {
-  const [row] = await db.select().from(googleCalendarTokens).limit(1);
+export async function getValidToken(userId?: string): Promise<{ accessToken: string; tokenRow: typeof googleCalendarTokens.$inferSelect } | null> {
+  let row;
+  if (userId) {
+    [row] = await db.select().from(googleCalendarTokens)
+      .where(eq(googleCalendarTokens.userId, userId)).limit(1);
+  } else {
+    // Fallback for system processes
+    [row] = await db.select().from(googleCalendarTokens).limit(1);
+  }
   if (!row) return null;
 
   // Check if token is expired (with 5 min buffer)
@@ -148,14 +155,12 @@ export function crmEventToGcalEvent(event: {
   if (event.allDay) {
     const startDate = event.startAt.slice(0, 10);
     const endDate = event.endAt ? event.endAt.slice(0, 10) : startDate;
-    // Google Calendar all-day end is exclusive — add 1 day
     const endParts = endDate.split("-").map(Number);
     const endPlusOne = new Date(endParts[0], endParts[1] - 1, endParts[2] + 1);
     const pad = (n: number) => String(n).padStart(2, "0");
     gcalEvent.start = { date: startDate };
     gcalEvent.end = { date: `${endPlusOne.getFullYear()}-${pad(endPlusOne.getMonth() + 1)}-${pad(endPlusOne.getDate())}` };
   } else {
-    // Send local time — Google will use the calendar's default timezone
     gcalEvent.start = { dateTime: event.startAt };
     gcalEvent.end = { dateTime: event.endAt || event.startAt };
   }
@@ -186,14 +191,12 @@ export async function pushEventToGoogle(
 
   let res;
   if (crmEvent.googleEventId) {
-    // Update existing
     res = await gcalFetch(
       `/calendars/${encodeURIComponent(calendarId)}/events/${crmEvent.googleEventId}`,
       accessToken,
       { method: "PUT", body: JSON.stringify(gcalEvent) }
     );
   } else {
-    // Create new
     res = await gcalFetch(
       `/calendars/${encodeURIComponent(calendarId)}/events`,
       accessToken,
@@ -213,7 +216,6 @@ export async function pushEventToGoogle(
 
   const data = await res.json();
 
-  // Update CRM event with Google ID
   await db
     .update(calendarEvents)
     .set({
@@ -242,11 +244,11 @@ export async function deleteEventFromGoogle(
 
 /**
  * Auto-sync a single CRM event to Google Calendar immediately.
- * Call this after creating or updating an event.
- * Silently no-ops if Google Calendar is not connected.
+ * Now requires userId to find the correct token.
  */
 export async function autoSyncEvent(crmEvent: {
   id: number;
+  userId: string;
   title: string;
   description?: string | null;
   location?: string | null;
@@ -257,27 +259,25 @@ export async function autoSyncEvent(crmEvent: {
   googleEventId?: string | null;
 }) {
   try {
-    const token = await getValidToken();
-    if (!token) return; // Not connected — skip silently
+    const token = await getValidToken(crmEvent.userId);
+    if (!token) return;
 
     const { accessToken, tokenRow } = token;
     const calendarId = tokenRow.calendarId || "primary";
     await pushEventToGoogle(accessToken, calendarId, crmEvent);
   } catch (err) {
     console.error("Auto-sync to Google failed:", err);
-    // Don't throw — sync failure shouldn't break the CRM operation
   }
 }
 
 /**
  * Auto-delete a CRM event from Google Calendar immediately.
- * Call this after deleting an event from the CRM.
- * Silently no-ops if Google Calendar is not connected or event wasn't synced.
+ * Now requires userId to find the correct token.
  */
-export async function autoDeleteFromGoogle(googleEventId: string | null | undefined) {
+export async function autoDeleteFromGoogle(googleEventId: string | null | undefined, userId?: string) {
   if (!googleEventId) return;
   try {
-    const token = await getValidToken();
+    const token = await getValidToken(userId);
     if (!token) return;
 
     const { accessToken, tokenRow } = token;
@@ -302,7 +302,6 @@ export async function pullEventsFromGoogle(
   if (lastSyncAt) {
     params.set("updatedMin", lastSyncAt);
   } else {
-    // First sync: only get future events
     params.set("timeMin", new Date().toISOString());
   }
 
