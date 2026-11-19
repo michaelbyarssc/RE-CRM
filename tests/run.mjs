@@ -15,7 +15,7 @@
 // TEST_SKIP_BUILD=1 (reuse the last build), TEST_FILES (space separated list).
 
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -145,12 +145,11 @@ function startServer(port, extraEnv, name) {
     [path.join(root, "node_modules", "next", "dist", "bin", "next"), "start", "-H", "127.0.0.1", "-p", String(port)],
     { cwd: root, env, detached: true, stdio: ["ignore", "pipe", "pipe"] }
   );
+  // Written as it arrives, so tests can read the server log while it runs.
   const file = path.join(outDir, `${name}.log`);
-  const chunks = [];
-  child.stdout.on("data", (d) => chunks.push(d));
-  child.stderr.on("data", (d) => chunks.push(d));
-  child.on("exit", () => writeFileSync(file, Buffer.concat(chunks)));
-  child.flushLog = () => writeFileSync(file, Buffer.concat(chunks));
+  writeFileSync(file, "");
+  child.stdout.on("data", (d) => appendFileSync(file, d));
+  child.stderr.on("data", (d) => appendFileSync(file, d));
   children.push(child);
   return child;
 }
@@ -172,7 +171,6 @@ async function waitForHttp(url, maxMs = 60_000) {
 async function teardown() {
   for (const c of children) {
     try {
-      c.flushLog?.();
       process.kill(-c.pid, "SIGTERM");
     } catch {
       // already gone

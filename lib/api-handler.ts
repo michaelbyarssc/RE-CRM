@@ -34,7 +34,56 @@ function pgErrorCode(err: unknown): string | undefined {
   return undefined;
 }
 
-export function errorResponse(err: unknown): Response {
+function className(e: unknown): string {
+  if (!e || typeof e !== "object") return typeof e;
+  const ctor = (e as { constructor?: { name?: unknown } }).constructor?.name;
+  const name = (e as { name?: unknown }).name;
+  return [ctor, name].filter((v, i, a) => typeof v === "string" && v && a.indexOf(v) === i).join("/") || "Object";
+}
+
+/**
+ * A log line that is safe to keep: method and path, the error class, and for
+ * a database error its Postgres code, constraint, table and the stack frames
+ * of the driver error. Never an error message: Drizzle's message carries the
+ * query and its parameters (API keys, personal data), and a Postgres message
+ * or `detail` can quote the values too.
+ */
+function safeErrorSummary(err: unknown, req?: Request): string {
+  let where = "unknown request";
+  if (req) {
+    let pathname = "?";
+    try {
+      pathname = new URL(req.url).pathname;
+    } catch {
+      // keep "?"
+    }
+    where = `${req.method} ${pathname}`;
+  }
+  const lines = [`API route error: ${where} class=${className(err)}`];
+  // The driver error is the first one in the cause chain that has a code.
+  let driver: Record<string, unknown> | undefined;
+  for (let e = err as Record<string, unknown> | undefined, i = 0; e && typeof e === "object" && i < 3; e = e.cause as typeof e, i++) {
+    if (typeof e.code === "string") {
+      driver = e;
+      break;
+    }
+  }
+  if (driver) {
+    const fields = [`driver=${className(driver)}`, `code=${driver.code}`];
+    if (typeof driver.constraint_name === "string") fields.push(`constraint=${driver.constraint_name}`);
+    if (typeof driver.table_name === "string") fields.push(`table=${driver.table_name}`);
+    lines.push(`  ${fields.join(" ")}`);
+  }
+  const stackOf = driver ?? err;
+  const stack = stackOf && typeof stackOf === "object" ? (stackOf as { stack?: unknown }).stack : undefined;
+  if (typeof stack === "string") {
+    // Stack frames only: the first line of a stack repeats the message.
+    lines.push(...stack.split("\n").filter((l) => /^\s+at /.test(l)));
+  }
+  return lines.join("\n");
+}
+
+export function errorResponse(err: unknown, req?: Request): Response {
   if (err instanceof HttpError) {
     return NextResponse.json({ error: err.message }, { status: err.status });
   }
@@ -44,7 +93,7 @@ export function errorResponse(err: unknown): Response {
   if (pgErrorCode(err) === "23505") {
     return NextResponse.json({ error: "Already exists" }, { status: 409 });
   }
-  console.error("API route error:", err);
+  console.error(safeErrorSummary(err, req));
   return NextResponse.json({ error: "Internal server error" }, { status: 500 });
 }
 
@@ -54,7 +103,7 @@ export function withErrors(handler: Handler): Handler {
     try {
       return await handler(req, ctx);
     } catch (err) {
-      return errorResponse(err);
+      return errorResponse(err, req);
     }
   };
 }
