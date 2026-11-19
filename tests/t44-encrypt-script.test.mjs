@@ -23,7 +23,8 @@ import {
   testRing,
 } from "./helpers/secrets.mjs";
 import { keyRingFromEnv, decrypt, versionOf, currentFingerprint } from "../lib/secrets/box.mjs";
-import { settingContext } from "../lib/secrets/policy.mjs";
+import { settingContext, SERVER_WRITTEN_SETTING_KEYS } from "../lib/secrets/policy.mjs";
+import { readFileSync } from "node:fs";
 
 const SCRIPT = path.join(process.env.TEST_REPO_ROOT || ".", "scripts", "encrypt-existing-secrets.mjs");
 const A = USERS.A;
@@ -472,7 +473,8 @@ test("T44 the server-only Google connect marker stays plain and unchanged, with 
   const [row] = await db()`INSERT INTO settings (user_id, key, value) VALUES (${A.id}, '_google_oauth_pending', ${marker}) RETURNING *`;
   const dry = run();
   assert.equal(dry.status, 0, dry.out);
-  assert.match(dry.out, /server-only settings \(names starting with _\), skipped: 1/);
+  assert.match(dry.out, /^  server-only settings \(names starting with _\), skipped: 1 \(_google_oauth_pending\)$/m, "listed by name");
+  assert.ok(!/^Note:/m.test(dry.out), "a name the app writes itself gives no note");
   assert.match(dry.out, /to encrypt \(plain text\): 3/, "the marker is not counted as a plain-text secret");
   const applied = runApply();
   assert.equal(applied.status, 0, applied.out);
@@ -522,4 +524,49 @@ test("T44 a key renamed back after a rotation: the message names the missing ver
     assert.ok(!/do not decrypt/.test(r.out), "it is not reported as a wrong key");
   }
   assert.deepEqual(await snapshot(), before);
+});
+
+test("T44 the list of server-written names matches OAUTH_PENDING_KEY in lib/google-oauth-state.ts", () => {
+  const source = readFileSync(path.join(process.env.TEST_REPO_ROOT, "lib", "google-oauth-state.ts"), "utf8");
+  const m = /export const OAUTH_PENDING_KEY = "([^"]+)";/.exec(source);
+  assert.ok(m, "OAUTH_PENDING_KEY is found");
+  assert.deepEqual([...SERVER_WRITTEN_SETTING_KEYS], [m[1]]);
+});
+
+test("T44 a server-only name the app does not write is listed, noted, left untouched, and the exit code is unchanged", async () => {
+  const odd = "_odd name\nx";
+  const [plainRow] = await db()`
+    INSERT INTO settings (user_id, key, value) VALUES (${A.id}, '_reiskip_key', ${dummySecret("reserved-plain")}) RETURNING *`;
+  const [oddRow] = await db()`INSERT INTO settings (user_id, key, value) VALUES (${A.id}, ${odd}, 'x') RETURNING *`;
+  await db()`INSERT INTO settings (user_id, key, value) VALUES (${A.id}, '_google_oauth_pending', ${"b".repeat(64)})`;
+  const quoted = JSON.stringify(odd);
+  for (const r of [run(), runApply()]) {
+    assert.equal(r.status, 0, r.out);
+    assertQuiet(r.out);
+    assert.ok(
+      r.out.includes(`server-only settings (names starting with _), skipped: 3 (_reiskip_key, ${quoted}, _google_oauth_pending)`),
+      r.out
+    );
+    assert.ok(
+      r.out.includes(
+        `Note: 2 server-only names are not one this app writes itself: _reiskip_key, ${quoted}. ` +
+          "If they hold a key someone saved, they are still plain text. Delete those rows or rename them " +
+          "(the app only writes: _google_oauth_pending)."
+      ),
+      r.out
+    );
+  }
+  assert.deepEqual(await settingRow(plainRow.id), plainRow, "left untouched, still plain text");
+  assert.deepEqual(await settingRow(oddRow.id), oddRow);
+});
+
+test("T44 a long list of server-only names is cut at 20 names", async () => {
+  for (let i = 0; i < 22; i++) {
+    await db()`INSERT INTO settings (user_id, key, value) VALUES (${A.id}, ${`_old_${String(i).padStart(2, "0")}`}, 'x')`;
+  }
+  const r = run();
+  assert.equal(r.status, 0, r.out);
+  assert.match(r.out, /skipped: 22 \(_old_00, .*_old_19 and 2 more\)$/m);
+  assert.ok(!r.out.includes("_old_20"), "the 21st name is not printed");
+  assert.match(r.out, /Note: 22 server-only names are not one this app writes itself: _old_00, .*_old_19 and 2 more\./);
 });

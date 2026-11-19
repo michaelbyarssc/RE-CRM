@@ -90,7 +90,7 @@ node --env-file=.env.local scripts/encrypt-existing-secrets.mjs --apply --expect
 node --env-file=.env.local scripts/encrypt-existing-secrets.mjs
 ```
 
-The script prints counts and row numbers only, never a key. Server-only settings (names starting with `_`, such as the Google connect marker) are never encrypted and have their own count line. It is safe to run the script again.
+The script prints counts and row numbers only, never a key. Server-only settings (names starting with `_`, such as the Google connect marker) are never encrypted and have their own count line, which shows the names of the rows it skips; a name the app does not write itself gets a note, because such a row may hold a key that is still plain text. It is safe to run the script again.
 
 **4. What the result means (the exit code):**
 

@@ -58,6 +58,7 @@ import {
   versionOf,
 } from "../lib/secrets/box.mjs";
 import {
+  SERVER_WRITTEN_SETTING_KEYS,
   TOKEN_COLUMNS,
   isBlank,
   isReservedSetting,
@@ -155,14 +156,46 @@ function newCounts() {
   return Object.fromEntries(CATEGORIES.map(([c]) => [c, []]));
 }
 
-function report(title, counts, { settingsOnly = true } = {}) {
+const MAX_NAMES_SHOWN = 20;
+
+/** A setting name for output: as is when it is plain, quoted with JSON.stringify otherwise (old rows can have odd names). */
+function showName(name) {
+  return /^[A-Za-z0-9_.-]+$/.test(name) ? name : JSON.stringify(name);
+}
+
+/** Up to 20 names, then "and N more". Names are not secret. */
+function nameList(names) {
+  const shown = names.slice(0, MAX_NAMES_SHOWN).map(showName).join(", ");
+  return names.length > MAX_NAMES_SHOWN ? `${shown} and ${names.length - MAX_NAMES_SHOWN} more` : shown;
+}
+
+/** `names` maps a category to the distinct setting names to list after its count. */
+function report(title, counts, { settingsOnly = true, names = {} } = {}) {
   console.log(title);
   for (const [category, label] of CATEGORIES) {
     if (!settingsOnly && SETTINGS_ONLY.has(category)) continue;
     const ids = counts[category];
-    const list = LIST_IDS.has(category) && ids.length ? ` (ids ${[...new Set(ids)].join(", ")})` : "";
+    let list = LIST_IDS.has(category) && ids.length ? ` (ids ${[...new Set(ids)].join(", ")})` : "";
+    if (names[category]?.length) list = ` (${nameList(names[category])})`;
     console.log(`  ${label}: ${ids.length}${list}`);
   }
+}
+
+/**
+ * A reserved name the app does not write itself may be an old row someone
+ * saved through the API directly. It is skipped like every reserved row, so
+ * say plainly that it is still plain text and what to do.
+ */
+function noteUnknownReserved(names) {
+  const unknown = names.filter((n) => !SERVER_WRITTEN_SETTING_KEYS.includes(n));
+  if (!unknown.length) return;
+  const one = unknown.length === 1;
+  console.log(
+    `Note: ${unknown.length} server-only ${one ? "name is" : "names are"} not one this app writes itself: ` +
+      `${nameList(unknown)}. If ${one ? "it holds" : "they hold"} a key someone saved, ${one ? "it is" : "they are"} ` +
+      `still plain text. Delete ${one ? "that row" : "those rows"} or rename ${one ? "it" : "them"} ` +
+      `(the app only writes: ${SERVER_WRITTEN_SETTING_KEYS.join(", ")}).`
+  );
 }
 
 async function collect(sql, ring) {
@@ -173,8 +206,10 @@ async function collect(sql, ring) {
   const ownerlessPlain = [];
 
   const settingsRows = await sql`SELECT id, user_id, key, value FROM settings ORDER BY id`;
+  const reservedNames = [];
   for (const row of settingsRows) {
     const isReserved = isReservedSetting(row.key);
+    if (isReserved && !reservedNames.includes(row.key)) reservedNames.push(row.key);
     const isPublic = !isReserved && !isSecretSetting(row.key);
     const context = row.user_id && isSecretSetting(row.key) ? settingContext(row.user_id, row.key) : null;
     const c = classify(ring, { stored: row.value, userId: row.user_id, context, isPublic, isReserved });
@@ -204,7 +239,10 @@ async function collect(sql, ring) {
     }
   }
 
-  report(`Saved keys (settings table): ${plural(settingsRows.length, "row", "rows")} looked at`, settingsCounts);
+  report(`Saved keys (settings table): ${plural(settingsRows.length, "row", "rows")} looked at`, settingsCounts, {
+    names: { reserved: reservedNames },
+  });
+  noteUnknownReserved(reservedNames);
   report(
     `Google Calendar connections (google_calendar_tokens table): ${plural(tokenRows.length, "row", "rows")} ` +
       `(${tokenRows.length * 2} values) looked at`,
