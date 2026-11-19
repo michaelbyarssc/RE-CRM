@@ -78,3 +78,24 @@ test("T5 a status outside the list is rejected and the lead is unchanged", async
   assert.equal(ok.status, 200);
   assert.equal((await lead(ids.aLead)).status, "contacted");
 });
+
+test("T5 import accepts a CSV row with more cells than headers and drops the extra cells", async () => {
+  // Shape the import page's CSV parser produces for a row that is too long.
+  const res = await api("/api/leads/import", {
+    method: "POST",
+    user: USERS.A,
+    body: {
+      filename: "ragged.csv",
+      mapping: { "Property Address": "propertyAddress", "Owner Age": "skip" },
+      data: [
+        { "Property Address": "501 Ragged Row Rd", "Owner Age": "55" },
+        { "Property Address": "502 Ragged Row Rd", "Owner Age": "61", __parsed_extra: ["X1", "X2"] },
+      ],
+    },
+  });
+  assert.equal(res.status, 200, res.text);
+  assert.equal(res.json.imported, 2, res.text);
+  const rows = await db()`SELECT custom_data FROM leads WHERE user_id = ${USERS.A.id} AND property_address LIKE '%Ragged Row Rd'`;
+  assert.equal(rows.length, 2);
+  for (const r of rows) assert.ok(!String(r.custom_data ?? "").includes("X1"), "extra cells are not stored");
+});

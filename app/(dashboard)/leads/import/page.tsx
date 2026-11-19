@@ -94,6 +94,7 @@ export default function ImportPage() {
           filename: file?.name || "unknown.csv",
         }),
       });
+      if (!res.ok) throw new Error(`Import refused (${res.status})`);
       const result = await res.json();
       setResult(result);
       setState("done");
