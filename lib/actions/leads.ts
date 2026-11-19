@@ -318,6 +318,9 @@ export async function getLeadCounts() {
     .where(eq(leads.userId, authUser.effectiveId))
     .groupBy(leads.status);
 
-  const total = results.reduce((sum, r) => sum + r.count, 0);
-  return { byStatus: results, total };
+  // Postgres returns count(*) as a bigint, which the driver hands back as a
+  // string; convert it so the total is a sum and not "0" + "2" = "02".
+  const byStatus = results.map((r) => ({ ...r, count: Number(r.count) }));
+  const total = byStatus.reduce((sum, r) => sum + r.count, 0);
+  return { byStatus, total };
 }
