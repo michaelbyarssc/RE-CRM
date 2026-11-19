@@ -45,8 +45,9 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // If authenticated and on login page, redirect to dashboard
-  if (user && publicPaths.includes(pathname)) {
+  // If authenticated and on login page, redirect to dashboard. The privacy
+  // and terms pages stay readable when signed in.
+  if (user && pathname === "/login") {
     const url = request.nextUrl.clone();
     url.pathname = "/";
     return NextResponse.redirect(url);
