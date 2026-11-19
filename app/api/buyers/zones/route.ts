@@ -7,6 +7,8 @@ import { geocodeAddress } from "@/lib/geocode";
 import { withAuth, readJson } from "@/lib/api-handler";
 import { idSchema, parseWith } from "@/lib/validation";
 
+const MAX_AREAS_PER_REQUEST = 25;
+
 interface GeocodedArea {
   name: string;
   lat: number;
@@ -63,14 +65,23 @@ export const POST = withAuth(async ({ req, user: authUser }) => {
     return NextResponse.json({ geocoded: 0 });
   }
 
-  const areaParts = areasStr
-    .split(",")
-    .map((s: string) => s.trim())
-    .filter(Boolean);
+  // Split, trim and drop repeats (ignoring letter case, first spelling wins).
+  const seen = new Set<string>();
+  const areaParts: string[] = [];
+  for (const part of areasStr.split(",")) {
+    const area = part.trim();
+    if (!area || seen.has(area.toLowerCase())) continue;
+    seen.add(area.toLowerCase());
+    areaParts.push(area);
+  }
 
+  // Each lookup waits about a second (the geocoder's rate limit), so one
+  // request looks up at most MAX_AREAS_PER_REQUEST areas and reports the rest
+  // as skipped, instead of running for most of an hour.
+  const toLookUp = areaParts.slice(0, MAX_AREAS_PER_REQUEST);
   const geocodedAreas: GeocodedArea[] = [];
 
-  for (const area of areaParts) {
+  for (const area of toLookUp) {
     const isZip = /^\d{5}(-\d{4})?$/.test(area);
     const isCounty = /county$/i.test(area);
     const type: GeocodedArea["type"] = isZip ? "zip" : isCounty ? "county" : "city";
@@ -107,5 +118,9 @@ export const POST = withAuth(async ({ req, user: authUser }) => {
     .set({ buyCriteria: JSON.stringify(updatedCriteria) })
     .where(and(eq(buyers.id, buyerId), eq(buyers.userId, authUser.effectiveId)));
 
-  return NextResponse.json({ geocoded: geocodedAreas.length, total: areaParts.length });
+  return NextResponse.json({
+    geocoded: geocodedAreas.length,
+    total: areaParts.length,
+    skipped: areaParts.length - toLookUp.length,
+  });
 });
