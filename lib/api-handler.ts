@@ -74,12 +74,35 @@ export function withAuth<P extends Record<string, string> = Record<string, strin
 
 const MAX_BODY_BYTES = 10 * 1024 * 1024;
 
+/**
+ * Read the body as a stream and count bytes, so a body without a declared
+ * length (chunked) is refused as soon as it passes the limit, without
+ * buffering the rest.
+ */
+async function readBodyText(req: NextRequest, limit: number): Promise<string> {
+  if (!req.body) return "";
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > limit) {
+      reader.cancel().catch(() => {});
+      throw new HttpError(413, "Request body too large");
+    }
+    chunks.push(value);
+  }
+  // Decoded as req.text() does (UTF-8, a leading BOM dropped).
+  return new TextDecoder().decode(Buffer.concat(chunks));
+}
+
 /** Read a JSON body. Malformed JSON is a 400; an empty body reads as {}. */
 export async function readJson(req: NextRequest): Promise<unknown> {
   const declared = Number(req.headers.get("content-length") || 0);
   if (declared > MAX_BODY_BYTES) throw new HttpError(413, "Request body too large");
-  const text = await req.text();
-  if (text.length > MAX_BODY_BYTES) throw new HttpError(413, "Request body too large");
+  const text = await readBodyText(req, MAX_BODY_BYTES);
   if (!text.trim()) return {};
   try {
     return JSON.parse(text);
