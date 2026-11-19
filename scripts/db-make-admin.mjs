@@ -3,23 +3,28 @@
 //
 // Usage:
 //   npm run db:make-admin -- owner@example.com
+//   npm run db:make-admin -- --id <user id>
 //   node --env-file=.env.local scripts/db-make-admin.mjs owner@example.com
 //
 // The user must have signed in once (so their profile row exists).
-// Exits with code 1 when no profile has that email.
+// Exits with code 1 when no profile matches. When more than one profile has
+// that email, nothing changes: the matching ids are printed and the script
+// exits with code 1, so you can run it again with --id.
 
 import postgres from "postgres";
 import { describeTarget } from "./lib/migrations.mjs";
 
 async function main() {
-  const email = process.argv[2];
-  if (!email || process.argv.length > 3) {
-    console.error("Usage: npm run db:make-admin -- <email>");
+  const args = process.argv.slice(2);
+  const byId = args[0] === "--id";
+  const value = byId ? args[1] : args[0];
+  if (!value || value.startsWith("-") || args.length !== (byId ? 2 : 1)) {
+    console.error("Usage: npm run db:make-admin -- <email>   or   npm run db:make-admin -- --id <user id>");
     return 1;
   }
   const url = process.env.DATABASE_URL;
   if (!url) {
-    console.error("DATABASE_URL is not set. Example: node --env-file=.env.local scripts/db-make-admin.mjs <email>");
+    console.error("DATABASE_URL is not set. Example: node --env-file=.env.local scripts/db-make-admin.mjs <email>  (or --id <user id>)");
     return 1;
   }
   const target = describeTarget(url);
@@ -27,12 +32,24 @@ async function main() {
 
   const sql = postgres(url, { prepare: false, max: 1, onnotice: () => {} });
   try {
-    const [profile] = await sql`
-      SELECT id, email, role FROM user_profiles WHERE lower(email) = lower(${email}) LIMIT 1`;
-    if (!profile) {
-      console.error(`No user profile with email ${email}. The user must sign in once first.`);
+    const matches = byId
+      ? await sql`SELECT id, email, role FROM user_profiles WHERE id = ${value}`
+      : await sql`SELECT id, email, role FROM user_profiles WHERE lower(email) = lower(${value}) ORDER BY id`;
+    if (matches.length === 0) {
+      console.error(
+        byId
+          ? `No user profile with id ${value}.`
+          : `No user profile with email ${value}. The user must sign in once first.`
+      );
       return 1;
     }
+    if (matches.length > 1) {
+      console.error(`More than one user profile has the email ${value}. Nothing changed. Matching profiles:`);
+      for (const m of matches) console.error(`  ${m.id}  ${m.email}  role: ${m.role}`);
+      console.error("Run again with --id <user id> to pick one.");
+      return 1;
+    }
+    const [profile] = matches;
     if (profile.role === "admin") {
       console.log(`${profile.email} (${profile.id}) is already an admin. Nothing changed.`);
       return 0;
