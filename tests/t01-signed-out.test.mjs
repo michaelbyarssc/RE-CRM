@@ -34,10 +34,11 @@ for (const route of routes) {
 }
 
 test("T1 signed out: the sequence processor needs a secret", async () => {
-  for (const method of ["POST", "GET"]) {
-    const res = await api("/api/sequences/process", { method });
-    assert.equal(res.status, 401, `${method}: ${res.status}`);
-  }
+  const res = await api("/api/sequences/process", { method: "POST" });
+  assert.equal(res.status, 401, `POST: ${res.status}`);
+  // No GET handler (no schedule, addendum 1): GET is refused, never a 2xx.
+  const get = await api("/api/sequences/process");
+  assert.equal(get.status, 405, `GET: ${get.status}`);
 });
 
 test("T1 signed out: the Google callback answers 401, even with a code", async () => {

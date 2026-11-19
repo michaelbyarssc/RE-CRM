@@ -65,13 +65,15 @@ test("T3 correct secret: 200 and every user's due steps are processed", async ()
   await assertProcessed(ids.bEnrollment, ids.bLead);
 });
 
-test("T3 GET with the secret works (Vercel Cron), GET with only a session does not", async () => {
+// The owner decided against a schedule (addendum 1), so the route has no GET:
+// neither a session nor the secret can run the processor with GET.
+test("T3 GET is not a way in: no GET handler, nothing processed", async () => {
   const withSession = await api("/api/sequences/process", { user: USERS.A });
-  assert.equal(withSession.status, 401);
+  assert.equal(withSession.status, 405, `session: ${withSession.status}`);
+  const withSecret = await api("/api/sequences/process", { headers: { authorization: `Bearer ${SECRET}` } });
+  assert.equal(withSecret.status, 405, `secret: ${withSecret.status}`);
   await assertUntouched(ids.aEnrollment, ids.aLead);
-  const res = await api("/api/sequences/process", { headers: { authorization: `Bearer ${SECRET}` } });
-  assert.equal(res.status, 200, res.text);
-  await assertProcessed(ids.bEnrollment, ids.bLead);
+  await assertUntouched(ids.bEnrollment, ids.bLead);
 });
 
 test("T3 signed in as A with no secret: only A's step is processed", async () => {
