@@ -113,6 +113,8 @@ test("T4 callback rejects a state signed with another key", async () => {
 test("T4 a test-minted valid state is accepted (the documented key derivation matches)", async () => {
   const minted = mintState({ userId: A.id });
   assert.equal(minted.state.split(".")[1], sign(minted.state.split(".")[0]));
+  // A real connect stores this pending marker on the server (see T18).
+  await db()`INSERT INTO settings (user_id, key, value) VALUES (${A.id}, '_google_oauth_pending', ${minted.payload.nh})`;
   const res = await callback(A, { code: "fake", state: minted.state }, minted.nonce);
   assert.equal(googleError(res), "token_exchange_failed");
 });

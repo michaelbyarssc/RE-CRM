@@ -1,9 +1,16 @@
 import { NextResponse } from "next/server";
 import { getGoogleAuthUrl, getValidToken } from "@/lib/google-calendar";
-import { createOAuthState, NONCE_COOKIE, nonceCookieOptions, STATE_TTL_SECONDS } from "@/lib/google-oauth-state";
+import {
+  createOAuthState,
+  NONCE_COOKIE,
+  nonceCookieOptions,
+  nonceHash,
+  OAUTH_PENDING_KEY,
+  STATE_TTL_SECONDS,
+} from "@/lib/google-oauth-state";
 import { db } from "@/lib/db";
-import { googleCalendarTokens } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { googleCalendarTokens, settings } from "@/lib/db/schema";
+import { and, eq } from "drizzle-orm";
 import { withAuth } from "@/lib/api-handler";
 import { ForbiddenError } from "@/lib/errors";
 
@@ -34,6 +41,13 @@ export const GET = withAuth(async ({ req, user }) => {
     if (!oauth) {
       return NextResponse.json({ error: NOT_CONFIGURED }, { status: 400 });
     }
+    // One pending flow per user: a new flow replaces the old marker, so older states stop working.
+    await db.transaction(async (tx) => {
+      await tx
+        .delete(settings)
+        .where(and(eq(settings.userId, user.id), eq(settings.key, OAUTH_PENDING_KEY)));
+      await tx.insert(settings).values({ userId: user.id, key: OAUTH_PENDING_KEY, value: nonceHash(oauth.nonce) });
+    });
     const res = NextResponse.redirect(getGoogleAuthUrl(oauth.state));
     res.cookies.set(NONCE_COOKIE, oauth.nonce, nonceCookieOptions(STATE_TTL_SECONDS));
     return res;

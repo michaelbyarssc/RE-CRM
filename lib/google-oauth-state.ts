@@ -11,12 +11,19 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypt
 //
 // The raw nonce goes in an httpOnly cookie limited to the callback path, so a
 // state only works in the browser that started the flow, for the user who
-// started it, once. tests/helpers/oauth.mjs mints states the same way.
+// started it. tests/helpers/oauth.mjs mints states the same way.
+//
+// Single use is enforced on the server too: starting a flow stores the nonce
+// hash as the user's one pending marker (a settings row with a reserved key),
+// and the callback deletes that row before doing anything else. A replayed or
+// superseded state finds no row and is refused.
 
 const KEY_LABEL = "re-crm/google-oauth-state/v1";
 export const NONCE_COOKIE = "google_oauth_nonce";
 export const NONCE_COOKIE_PATH = "/api/calendar/google/callback";
 export const STATE_TTL_SECONDS = 10 * 60;
+/** Settings key of the pending-flow marker. Keys starting with "_" are server-only. */
+export const OAUTH_PENDING_KEY = "_google_oauth_pending";
 
 function signingKey(): Buffer | null {
   const secret = process.env.GOOGLE_CLIENT_SECRET;
@@ -26,6 +33,11 @@ function signingKey(): Buffer | null {
 
 function sha256Hex(value: string) {
   return createHash("sha256").update(value).digest("hex");
+}
+
+/** The nonce hash carried in the state and stored as the pending marker. */
+export function nonceHash(nonce: string) {
+  return sha256Hex(nonce);
 }
 
 function safeEqual(a: string, b: string) {

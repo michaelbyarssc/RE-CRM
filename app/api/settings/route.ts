@@ -7,8 +7,12 @@ import { withAuth, readJson } from "@/lib/api-handler";
 import { parseWith } from "@/lib/validation";
 
 // A flat object of setting names to values. Values that are not strings are
-// skipped, as before.
-const settingsSchema = z.record(z.string().min(1).max(100), z.unknown());
+// skipped, as before. Names starting with "_" are reserved for the server
+// (for example the Google connect marker): never returned, never accepted.
+const settingsSchema = z.record(
+  z.string().min(1).max(100).refine((k) => !k.startsWith("_")),
+  z.unknown()
+);
 const MAX_VALUE_LENGTH = 10_000;
 
 export const GET = withAuth(async ({ user: authUser }) => {
@@ -16,6 +20,7 @@ export const GET = withAuth(async ({ user: authUser }) => {
     .where(eq(settings.userId, authUser.effectiveId));
   const map: Record<string, string> = {};
   for (const s of allSettings) {
+    if (s.key.startsWith("_")) continue;
     map[s.key] = s.value;
   }
   return NextResponse.json(map);

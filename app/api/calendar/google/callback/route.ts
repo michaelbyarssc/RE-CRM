@@ -1,15 +1,23 @@
 import { NextResponse } from "next/server";
 import { exchangeCodeForTokens } from "@/lib/google-calendar";
-import { NONCE_COOKIE, nonceCookieOptions, verifyOAuthState } from "@/lib/google-oauth-state";
+import {
+  NONCE_COOKIE,
+  nonceCookieOptions,
+  nonceHash,
+  OAUTH_PENDING_KEY,
+  verifyOAuthState,
+} from "@/lib/google-oauth-state";
 import { db } from "@/lib/db";
-import { googleCalendarTokens } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { googleCalendarTokens, settings } from "@/lib/db/schema";
+import { and, eq } from "drizzle-orm";
 import { withAuth } from "@/lib/api-handler";
 
 // Order matters: (1) signed in or 401 (withAuth); (2) the nonce cookie is
 // cleared on every answer; (3) the state must be one this server signed for
-// this user in this browser, not expired, or nothing else happens; (4) only
-// then is Google's own error looked at; (5) the code is exchanged.
+// this user in this browser, not expired, or nothing else happens; (4) the
+// user's pending-flow marker for this state is deleted, and if there was none
+// (already used, or replaced by a newer flow) nothing else happens; (5) only
+// then is Google's own error looked at; (6) the code is exchanged.
 export const GET = withAuth(async ({ req, user }) => {
   const params = req.nextUrl.searchParams;
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3001";
@@ -25,7 +33,22 @@ export const GET = withAuth(async ({ req, user }) => {
   }
 
   const nonce = req.cookies.get(NONCE_COOKIE)?.value;
-  if (!verifyOAuthState(params.get("state"), nonce, user.id)) {
+  if (!nonce || !verifyOAuthState(params.get("state"), nonce, user.id)) {
+    return toSettings("google_error=invalid_state");
+  }
+
+  // Use the state up now, whatever happens next.
+  const consumed = await db
+    .delete(settings)
+    .where(
+      and(
+        eq(settings.userId, user.id),
+        eq(settings.key, OAUTH_PENDING_KEY),
+        eq(settings.value, nonceHash(nonce))
+      )
+    )
+    .returning({ id: settings.id });
+  if (consumed.length === 0) {
     return toSettings("google_error=invalid_state");
   }
 
