@@ -107,17 +107,21 @@ export default function LeadDetailPage({
   }, [fetchLead, fetchNotes, fetchTags]);
 
   const handleStatusChange = async (status: string) => {
-    await fetch(`/api/leads/${id}`, {
+    const res = await fetch(`/api/leads/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
     });
     fetchLead();
+    if (!res.ok) {
+      toast.error("Could not update the status");
+      return;
+    }
     toast.success("Status updated");
   };
 
   const handleSave = async () => {
-    await fetch(`/api/leads/${id}`, {
+    const res = await fetch(`/api/leads/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -135,6 +139,15 @@ export default function LeadDetailPage({
         email: editData.email,
       }),
     });
+    // Keep the form open on a rejected save so the edits are not lost.
+    if (!res.ok) {
+      toast.error(
+        editData.propertyAddress?.trim()
+          ? "Could not save the lead. Check that no field is too long."
+          : "Could not save the lead. The property address is required."
+      );
+      return;
+    }
     setEditing(false);
     fetchLead();
     toast.success("Lead updated");
