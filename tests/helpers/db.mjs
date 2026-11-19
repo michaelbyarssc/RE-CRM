@@ -2,9 +2,10 @@
 // Always goes through the guard: only a local database whose name ends in _test.
 
 import postgres from "postgres";
-import { assertSafeTestDatabase } from "./config.mjs";
+import { assertConnectedToTestDatabase, assertSafeTestDatabase } from "./config.mjs";
 
 let client;
+let serverChecked;
 
 export function db() {
   if (!client) {
@@ -20,6 +21,7 @@ export async function closeDb() {
   if (client) {
     await client.end({ timeout: 5 });
     client = undefined;
+    serverChecked = undefined;
   }
 }
 
@@ -49,6 +51,9 @@ function futureLocal(days) {
 /** Wipe every table and insert the fixtures. Returns the ids the tests need. */
 export async function reseed() {
   const sql = db();
+  // Once per connection: the server must say it is a local _test database.
+  serverChecked ??= assertConnectedToTestDatabase(sql);
+  await serverChecked;
   const tables = await sql`SELECT tablename FROM pg_tables WHERE schemaname = 'public'`;
   if (tables.length) {
     await sql.unsafe(

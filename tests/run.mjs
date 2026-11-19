@@ -21,6 +21,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import postgres from "postgres";
 import {
+  assertConnectedToTestDatabase,
   assertSafeTestDatabase,
   testConfig,
   GOOGLE_CLIENT_ID,
@@ -93,6 +94,8 @@ let sql;
 async function connect() {
   const client = postgres(cfg.databaseUrl, { prepare: false, max: 2, onnotice: () => {}, connect_timeout: 5 });
   await client`select 1`;
+  // Ask the server itself, before anything is changed.
+  await assertConnectedToTestDatabase(client);
   return client;
 }
 
