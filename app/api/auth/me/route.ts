@@ -1,18 +1,13 @@
 import { NextResponse } from "next/server";
-import { getAuthenticatedUser } from "@/lib/auth";
+import { withAuth } from "@/lib/api-handler";
 
-export async function GET() {
-  try {
-    const authUser = await getAuthenticatedUser();
-    return NextResponse.json({
-      id: authUser.id,
-      effectiveId: authUser.effectiveId,
-      email: authUser.email,
-      role: authUser.role,
-      isImpersonating: authUser.isImpersonating,
-      impersonatingEmail: authUser.impersonatingEmail || null,
-    });
-  } catch {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-}
+export const GET = withAuth(async ({ user }) => {
+  return NextResponse.json({
+    id: user.id,
+    effectiveId: user.effectiveId,
+    email: user.email,
+    role: user.role,
+    isImpersonating: user.isImpersonating,
+    impersonatingEmail: user.impersonatingEmail || null,
+  });
+});

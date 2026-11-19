@@ -1,12 +1,64 @@
-"use server";
+import "server-only";
 
+import { z } from "zod";
 import { db } from "@/lib/db";
 import { leads, tags, leadTags, csvImports } from "@/lib/db/schema";
 import { eq, like, or, inArray, sql, and } from "drizzle-orm";
 import { getAuthenticatedUser } from "@/lib/auth";
+import { LEAD_STATUSES } from "@/lib/constants";
+import { BadRequestError, NotFoundError } from "@/lib/errors";
+import { parseWith } from "@/lib/validation";
 
 export type Lead = typeof leads.$inferSelect;
 export type Tag = typeof tags.$inferSelect;
+
+// The pipeline page asks for 500 at once.
+export const MAX_PAGE_SIZE = 500;
+
+const LEAD_STATUS_VALUES = LEAD_STATUSES.map((s) => s.value) as [string, ...string[]];
+export const leadStatusSchema = z.enum(LEAD_STATUS_VALUES);
+
+const text = (max: number) => z.string().max(max).nullable().optional();
+
+// The lead fields a user may edit. Everything else in a request body
+// (userId, id, createdAt, updatedAt, latitude, source, customData, ...) is dropped.
+const leadUpdateSchema = z.object({
+  firstName: text(200),
+  lastName: text(200),
+  propertyAddress: z.string().trim().min(1).max(500).optional(),
+  propertyCity: text(200),
+  propertyState: text(100),
+  propertyZip: text(20),
+  mailingAddress: text(500),
+  mailingCity: text(200),
+  mailingState: text(100),
+  mailingZip: text(20),
+  phone: text(50),
+  email: text(320),
+  status: leadStatusSchema.optional(),
+});
+
+async function tagsForLeads(leadIds: number[], userId: string) {
+  const byLead = new Map<number, Tag[]>();
+  if (leadIds.length === 0) return byLead;
+  const rows = await db
+    .select({ leadId: leadTags.leadId, tag: tags })
+    .from(leadTags)
+    .innerJoin(tags, and(eq(leadTags.tagId, tags.id), eq(tags.userId, userId)))
+    .where(inArray(leadTags.leadId, leadIds));
+  for (const r of rows) {
+    const list = byLead.get(r.leadId) ?? [];
+    list.push(r.tag);
+    byLead.set(r.leadId, list);
+  }
+  return byLead;
+}
+
+async function assertOwnTag(tagId: number, userId: string) {
+  const [tag] = await db.select({ id: tags.id }).from(tags)
+    .where(and(eq(tags.id, tagId), eq(tags.userId, userId))).limit(1);
+  if (!tag) throw new NotFoundError("Tag not found");
+}
 
 export async function getLeads(params?: {
   search?: string;
@@ -18,11 +70,11 @@ export async function getLeads(params?: {
   const authUser = await getAuthenticatedUser();
   const userId = authUser.effectiveId;
 
-  const page = params?.page ?? 1;
-  const pageSize = params?.pageSize ?? 50;
+  const page = Math.max(1, Math.floor(params?.page ?? 1));
+  const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, Math.floor(params?.pageSize ?? 50)));
   const offset = (page - 1) * pageSize;
 
-  let conditions = [eq(leads.userId, userId)];
+  const conditions = [eq(leads.userId, userId)];
 
   if (params?.search) {
     const term = `%${params.search}%`;
@@ -59,20 +111,9 @@ export async function getLeads(params?: {
 
   const total = countResult[0]?.count ?? 0;
 
-  // Get tags for each lead
-  const leadsWithTags = [];
-  for (const lead of rows) {
-    const leadTagRows = await db
-      .select({ tag: tags })
-      .from(leadTags)
-      .innerJoin(tags, eq(leadTags.tagId, tags.id))
-      .where(eq(leadTags.leadId, lead.id));
-
-    leadsWithTags.push({
-      ...lead,
-      tags: leadTagRows.map((r) => r.tag),
-    });
-  }
+  // Tags for the whole page in one query, only the caller's own tags.
+  const tagMap = await tagsForLeads(rows.map((l) => l.id), userId);
+  const leadsWithTags = rows.map((lead) => ({ ...lead, tags: tagMap.get(lead.id) ?? [] }));
 
   return { leads: leadsWithTags, total, page, pageSize };
 }
@@ -84,38 +125,53 @@ export async function getLead(id: number) {
     .limit(1);
   if (!lead) return null;
 
-  const leadTagRows = await db
-    .select({ tag: tags })
-    .from(leadTags)
-    .innerJoin(tags, eq(leadTags.tagId, tags.id))
-    .where(eq(leadTags.leadId, id));
-
-  return { ...lead, tags: leadTagRows.map((r) => r.tag) };
+  const tagMap = await tagsForLeads([id], authUser.effectiveId);
+  return { ...lead, tags: tagMap.get(id) ?? [] };
 }
 
 export async function updateLeadStatus(id: number, status: string) {
   const authUser = await getAuthenticatedUser();
+  const valid = parseWith(leadStatusSchema, status);
   await db.update(leads)
-    .set({ status, updatedAt: new Date().toISOString() })
+    .set({ status: valid, updatedAt: new Date().toISOString() })
     .where(and(eq(leads.id, id), eq(leads.userId, authUser.effectiveId)));
 }
 
-export async function updateLead(id: number, data: Partial<typeof leads.$inferInsert>) {
+/**
+ * Update the editable fields of one of the caller's leads. `data` is
+ * untrusted: it is checked against the allow-list and unknown fields are
+ * dropped. Throws NotFoundError when the lead is not the caller's.
+ */
+export async function updateLead(id: number, data: unknown) {
   const authUser = await getAuthenticatedUser();
-  await db.update(leads)
-    .set({ ...data, updatedAt: new Date().toISOString() })
-    .where(and(eq(leads.id, id), eq(leads.userId, authUser.effectiveId)));
+  const parsed = parseWith(leadUpdateSchema, data);
+  const fields = Object.fromEntries(Object.entries(parsed).filter(([, v]) => v !== undefined));
+
+  if (Object.keys(fields).length === 0) {
+    const [lead] = await db.select({ id: leads.id }).from(leads)
+      .where(and(eq(leads.id, id), eq(leads.userId, authUser.effectiveId))).limit(1);
+    if (!lead) throw new NotFoundError("Lead not found");
+    return;
+  }
+
+  const updated = await db.update(leads)
+    .set({ ...fields, updatedAt: new Date().toISOString() })
+    .where(and(eq(leads.id, id), eq(leads.userId, authUser.effectiveId)))
+    .returning({ id: leads.id });
+  if (updated.length === 0) throw new NotFoundError("Lead not found");
 }
 
 export async function bulkUpdateStatus(ids: number[], status: string) {
   const authUser = await getAuthenticatedUser();
+  const valid = parseWith(leadStatusSchema, status);
   await db.update(leads)
-    .set({ status, updatedAt: new Date().toISOString() })
+    .set({ status: valid, updatedAt: new Date().toISOString() })
     .where(and(inArray(leads.id, ids), eq(leads.userId, authUser.effectiveId)));
 }
 
 export async function bulkAddTag(leadIds: number[], tagId: number) {
   const authUser = await getAuthenticatedUser();
+  await assertOwnTag(tagId, authUser.effectiveId);
   // Verify leads belong to user
   const userLeads = await db.select({ id: leads.id }).from(leads)
     .where(and(inArray(leads.id, leadIds), eq(leads.userId, authUser.effectiveId)));
@@ -150,7 +206,8 @@ export async function addTagToLead(leadId: number, tagId: number) {
   const authUser = await getAuthenticatedUser();
   const [lead] = await db.select({ id: leads.id }).from(leads)
     .where(and(eq(leads.id, leadId), eq(leads.userId, authUser.effectiveId))).limit(1);
-  if (!lead) return;
+  if (!lead) throw new NotFoundError("Lead not found");
+  await assertOwnTag(tagId, authUser.effectiveId);
 
   try {
     await db.insert(leadTags).values({ leadId, tagId });
@@ -170,15 +227,24 @@ export async function createTag(name: string, color: string) {
   return tag;
 }
 
+// One import request carries at most this many rows (400 above it).
+export const MAX_IMPORT_ROWS = 25_000;
+const IMPORT_BATCH_SIZE = 500;
+
 export async function importLeads(
   data: Record<string, string>[],
   columnMapping: Record<string, string>,
   filename: string
 ) {
+  if (data.length > MAX_IMPORT_ROWS) {
+    throw new BadRequestError(`At most ${MAX_IMPORT_ROWS} rows per import`);
+  }
   const authUser = await getAuthenticatedUser();
   const userId = authUser.effectiveId;
-  let imported = 0;
   let skipped = 0;
+
+  type NewLead = typeof leads.$inferInsert;
+  const candidates: { values: NewLead; normalized: string }[] = [];
 
   for (const row of data) {
     const mapped: Record<string, string> = {};
@@ -198,24 +264,9 @@ export async function importLeads(
       continue;
     }
 
-    // Check for duplicate by property address (scoped to user)
-    const normalized = mapped.propertyAddress.toLowerCase().replace(/\s+/g, " ").trim();
-    const [existing] = await db
-      .select({ id: leads.id })
-      .from(leads)
-      .where(and(
-        eq(leads.userId, userId),
-        sql`lower(replace(${leads.propertyAddress}, '  ', ' ')) = ${normalized}`
-      ))
-      .limit(1);
-
-    if (existing) {
-      skipped++;
-      continue;
-    }
-
-    await db.insert(leads)
-      .values({
+    candidates.push({
+      normalized: mapped.propertyAddress.toLowerCase().replace(/\s+/g, " ").trim(),
+      values: {
         userId,
         firstName: mapped.firstName || null,
         lastName: mapped.lastName || null,
@@ -231,10 +282,48 @@ export async function importLeads(
         email: mapped.email || null,
         source: filename,
         customData: Object.keys(extra).length > 0 ? JSON.stringify(extra) : null,
-      });
-
-    imported++;
+      },
+    });
   }
+
+  // Duplicate check for the whole file at once (it used to be one query per
+  // row). The rule is unchanged: the incoming address, lower cased with white
+  // space collapsed, is compared with lower(replace(property_address, '  ', ' '))
+  // of the caller's stored leads, and a row that repeats an earlier inserted
+  // row of the same file is skipped too. Postgres computes the stored form of
+  // both the existing and the incoming addresses, so the comparison is the same
+  // one the database made before.
+  const taken = new Set<string>();
+  if (candidates.length > 0) {
+    const existing = await db
+      .selectDistinct({ key: sql<string>`lower(replace(${leads.propertyAddress}, '  ', ' '))` })
+      .from(leads)
+      .where(eq(leads.userId, userId));
+    for (const e of existing) taken.add(e.key);
+  }
+  const storedForms =
+    candidates.length > 0
+      ? await db.execute<{ key: string }>(sql`
+          SELECT lower(replace(a, '  ', ' ')) AS key
+          FROM jsonb_array_elements_text(${JSON.stringify(candidates.map((c) => c.values.propertyAddress))}::jsonb)
+            WITH ORDINALITY AS t(a, i)
+          ORDER BY i`)
+      : [];
+
+  const toInsert: NewLead[] = [];
+  candidates.forEach((c, i) => {
+    if (taken.has(c.normalized)) {
+      skipped++;
+      return;
+    }
+    toInsert.push(c.values);
+    taken.add(storedForms[i].key);
+  });
+
+  for (let i = 0; i < toInsert.length; i += IMPORT_BATCH_SIZE) {
+    await db.insert(leads).values(toInsert.slice(i, i + IMPORT_BATCH_SIZE));
+  }
+  const imported = toInsert.length;
 
   // Record import
   await db.insert(csvImports)
@@ -261,6 +350,9 @@ export async function getLeadCounts() {
     .where(eq(leads.userId, authUser.effectiveId))
     .groupBy(leads.status);
 
-  const total = results.reduce((sum, r) => sum + r.count, 0);
-  return { byStatus: results, total };
+  // Postgres returns count(*) as a bigint, which the driver hands back as a
+  // string; convert it so the total is a sum and not "0" + "2" = "02".
+  const byStatus = results.map((r) => ({ ...r, count: Number(r.count) }));
+  const total = byStatus.reduce((sum, r) => sum + r.count, 0);
+  return { byStatus, total };
 }

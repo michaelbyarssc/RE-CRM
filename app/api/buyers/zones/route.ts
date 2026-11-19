@@ -1,9 +1,13 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import { z } from "zod";
 import { db } from "@/lib/db";
 import { buyers } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { geocodeAddress } from "@/lib/geocode";
-import { getAuthenticatedUser } from "@/lib/auth";
+import { withAuth, readJson } from "@/lib/api-handler";
+import { idSchema, parseWith } from "@/lib/validation";
+
+const MAX_AREAS_PER_REQUEST = 25;
 
 interface GeocodedArea {
   name: string;
@@ -15,8 +19,7 @@ interface GeocodedArea {
 /**
  * GET - Return all buyers with their geocoded zone data for the map
  */
-export async function GET() {
-  const authUser = await getAuthenticatedUser();
+export const GET = withAuth(async ({ user: authUser }) => {
   const allBuyers = await db.select().from(buyers)
     .where(eq(buyers.userId, authUser.effectiveId));
 
@@ -39,20 +42,14 @@ export async function GET() {
     .filter(Boolean);
 
   return NextResponse.json(zones);
-}
+});
 
 /**
  * POST - Geocode a buyer's areas and update their record
  * Body: { buyerId: number }
  */
-export async function POST(req: NextRequest) {
-  const authUser = await getAuthenticatedUser();
-  const body = await req.json();
-  const buyerId = body.buyerId;
-
-  if (!buyerId) {
-    return NextResponse.json({ error: "buyerId required" }, { status: 400 });
-  }
+export const POST = withAuth(async ({ req, user: authUser }) => {
+  const { buyerId } = parseWith(z.object({ buyerId: idSchema }), await readJson(req));
 
   // Fetch the buyer (scoped to user)
   const [buyer] = await db.select().from(buyers)
@@ -68,14 +65,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ geocoded: 0 });
   }
 
-  const areaParts = areasStr
-    .split(",")
-    .map((s: string) => s.trim())
-    .filter(Boolean);
+  // Split, trim and drop repeats (ignoring letter case, first spelling wins).
+  const seen = new Set<string>();
+  const areaParts: string[] = [];
+  for (const part of areasStr.split(",")) {
+    const area = part.trim();
+    if (!area || seen.has(area.toLowerCase())) continue;
+    seen.add(area.toLowerCase());
+    areaParts.push(area);
+  }
 
+  // Each lookup waits about a second (the geocoder's rate limit), so one
+  // request looks up at most MAX_AREAS_PER_REQUEST areas and reports the rest
+  // as skipped, instead of running for most of an hour.
+  const toLookUp = areaParts.slice(0, MAX_AREAS_PER_REQUEST);
   const geocodedAreas: GeocodedArea[] = [];
 
-  for (const area of areaParts) {
+  for (const area of toLookUp) {
     const isZip = /^\d{5}(-\d{4})?$/.test(area);
     const isCounty = /county$/i.test(area);
     const type: GeocodedArea["type"] = isZip ? "zip" : isCounty ? "county" : "city";
@@ -112,5 +118,9 @@ export async function POST(req: NextRequest) {
     .set({ buyCriteria: JSON.stringify(updatedCriteria) })
     .where(and(eq(buyers.id, buyerId), eq(buyers.userId, authUser.effectiveId)));
 
-  return NextResponse.json({ geocoded: geocodedAreas.length, total: areaParts.length });
-}
+  return NextResponse.json({
+    geocoded: geocodedAreas.length,
+    total: areaParts.length,
+    skipped: areaParts.length - toLookUp.length,
+  });
+});

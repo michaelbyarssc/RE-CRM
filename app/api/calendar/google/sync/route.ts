@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { calendarEvents, googleCalendarTokens } from "@/lib/db/schema";
 import { eq, isNull, and, or } from "drizzle-orm";
@@ -7,11 +7,10 @@ import {
   pushEventToGoogle,
   pullEventsFromGoogle,
 } from "@/lib/google-calendar";
-import { getAuthenticatedUser } from "@/lib/auth";
+import { withAuth } from "@/lib/api-handler";
 
 // POST: Trigger a two-way sync for the current user
-export async function POST(req: NextRequest) {
-  const authUser = await getAuthenticatedUser();
+export const POST = withAuth(async ({ user: authUser }) => {
   const userId = authUser.effectiveId;
 
   const token = await getValidToken(userId);
@@ -92,7 +91,7 @@ export async function POST(req: NextRequest) {
               syncStatus: "synced",
               updatedAt: new Date().toLocaleString("sv-SE").replace(" ", "T"),
             })
-            .where(eq(calendarEvents.id, existing.id));
+            .where(and(eq(calendarEvents.id, existing.id), eq(calendarEvents.userId, userId)));
           pulled++;
         }
       } else {
@@ -135,7 +134,7 @@ export async function POST(req: NextRequest) {
       lastSyncAt: nowISO,
       updatedAt: nowISO,
     })
-    .where(eq(googleCalendarTokens.id, tokenRow.id));
+    .where(and(eq(googleCalendarTokens.id, tokenRow.id), eq(googleCalendarTokens.userId, userId)));
 
   return NextResponse.json({ pushed, pulled, errors });
-}
+});

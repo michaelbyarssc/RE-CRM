@@ -1,13 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { leads, buyers } from "@/lib/db/schema";
 import { ilike, or, eq, and } from "drizzle-orm";
-import { getAuthenticatedUser } from "@/lib/auth";
+import { withAuth } from "@/lib/api-handler";
 
-export async function GET(req: NextRequest) {
-  const authUser = await getAuthenticatedUser();
-  const { searchParams } = new URL(req.url);
-  const q = searchParams.get("q") || "";
+export const GET = withAuth(async ({ req, user: authUser }) => {
+  const { searchParams } = req.nextUrl;
+  const q = (searchParams.get("q") || "").slice(0, 200);
   const type = searchParams.get("type"); // "leads" or "buyers"
 
   if (type === "buyers") {
@@ -62,4 +61,4 @@ export async function GET(req: NextRequest) {
     .limit(20);
 
   return NextResponse.json(results);
-}
+});

@@ -92,17 +92,25 @@ export default function SettingsPage() {
     fetchSettings();
     fetchGoogleStatus();
 
-    // Check for OAuth redirect params
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("google_success")) {
-      toast.success("Google Calendar connected!");
-      window.history.replaceState({}, "", "/settings");
-      fetchGoogleStatus();
-    }
-    if (params.get("google_error")) {
-      toast.error(`Google Calendar error: ${params.get("google_error")}`);
-      window.history.replaceState({}, "", "/settings");
-    }
+    // Check for OAuth redirect params. This runs one tick later: the page's
+    // effect runs before the app-wide Toaster starts listening, so a toast
+    // shown right away was lost.
+    const timer = setTimeout(() => {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("google_success")) {
+        toast.success("Google Calendar connected!");
+        window.history.replaceState({}, "", "/settings");
+        fetchGoogleStatus();
+      }
+      if (params.get("google_error") === "invalid_state") {
+        toast.error("Google Calendar was not connected: the sign-in link was old or not started here. Please click Connect again.");
+        window.history.replaceState({}, "", "/settings");
+      } else if (params.get("google_error")) {
+        toast.error(`Google Calendar error: ${params.get("google_error")}`);
+        window.history.replaceState({}, "", "/settings");
+      }
+    }, 0);
+    return () => clearTimeout(timer);
   }, [fetchSettings, fetchGoogleStatus]);
 
   const toggleVisibility = (key: string) => {

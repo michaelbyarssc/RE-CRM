@@ -1,24 +1,33 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import { z } from "zod";
 import { db } from "@/lib/db";
 import { callLog, leads } from "@/lib/db/schema";
 import { eq, and, sql } from "drizzle-orm";
-import { getAuthenticatedUser } from "@/lib/auth";
+import { withAuth, readJson } from "@/lib/api-handler";
+import { idSchema, parseId, parseWith } from "@/lib/validation";
 
-export async function GET(req: NextRequest) {
-  const authUser = await getAuthenticatedUser();
-  const { searchParams } = new URL(req.url);
-  const leadId = searchParams.get("leadId");
+const callSchema = z.object({
+  leadId: idSchema,
+  direction: z.string().max(20).optional(),
+  duration: z.number().int().min(0).max(86400).optional(),
+  disposition: z.string().max(100).nullable().optional(),
+  notes: z.string().max(10000).nullable().optional(),
+});
 
-  if (leadId) {
+export const GET = withAuth(async ({ req, user: authUser }) => {
+  const rawLeadId = req.nextUrl.searchParams.get("leadId");
+
+  if (rawLeadId) {
+    const leadId = parseId(rawLeadId);
     // Verify lead belongs to user
     const [lead] = await db.select({ id: leads.id }).from(leads)
-      .where(and(eq(leads.id, Number(leadId)), eq(leads.userId, authUser.effectiveId))).limit(1);
+      .where(and(eq(leads.id, leadId), eq(leads.userId, authUser.effectiveId))).limit(1);
     if (!lead) return NextResponse.json([]);
 
     const calls = await db
       .select()
       .from(callLog)
-      .where(eq(callLog.leadId, Number(leadId)))
+      .where(eq(callLog.leadId, leadId))
       .orderBy(sql`${callLog.calledAt} DESC`);
     return NextResponse.json(calls);
   }
@@ -40,11 +49,10 @@ export async function GET(req: NextRequest) {
     .orderBy(sql`${callLog.calledAt} DESC`)
     .limit(50);
   return NextResponse.json(calls);
-}
+});
 
-export async function POST(req: NextRequest) {
-  const authUser = await getAuthenticatedUser();
-  const body = await req.json();
+export const POST = withAuth(async ({ req, user: authUser }) => {
+  const body = parseWith(callSchema, await readJson(req));
 
   // Verify lead belongs to user
   const [lead] = await db.select({ id: leads.id }).from(leads)
@@ -62,4 +70,4 @@ export async function POST(req: NextRequest) {
     })
     .returning();
   return NextResponse.json(call);
-}
+});

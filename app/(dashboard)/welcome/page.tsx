@@ -648,10 +648,10 @@ export default function WelcomeTourPage() {
           <CardContent className="text-center py-8">
             <Rocket className="h-10 w-10 text-primary mx-auto mb-3" />
             <h2 className="text-2xl font-bold mb-2">
-              You're Ready to Close Deals
+              You&apos;re Ready to Close Deals
             </h2>
             <p className="text-muted-foreground mb-6 max-w-md mx-auto">
-              You've seen every tool in Deal Desk Pro. Start importing leads,
+              You&apos;ve seen every tool in Deal Desk Pro. Start importing leads,
               setting up sequences, and making calls today.
             </p>
             <div className="flex gap-3 justify-center flex-wrap">

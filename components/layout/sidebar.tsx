@@ -115,13 +115,14 @@ export function Sidebar() {
   const router = useRouter();
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
-  const supabase = createSupabaseBrowserClient();
 
+  // The Supabase client is created in the browser only (not while the page is
+  // prerendered at build time, when its settings may not be available).
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
+    createSupabaseBrowserClient().auth.getUser().then(({ data: { user } }) => {
       setUserEmail(user?.email ?? null);
     });
-  }, [supabase]);
+  }, []);
 
   // Close sheet on route change
   useEffect(() => {
@@ -129,7 +130,7 @@ export function Sidebar() {
   }, [pathname]);
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
+    await createSupabaseBrowserClient().auth.signOut();
     router.push("/login");
     router.refresh();
   };

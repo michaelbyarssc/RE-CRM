@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { STATUS_MAP, type LeadStatus } from "@/lib/constants";
+import { html } from "@/lib/safe-html";
 
 interface MapLead {
   id: number;
@@ -51,11 +52,11 @@ function createMarkerIcon(status: string) {
   const color = STATUS_COLORS[status] || "#6B7280";
   return L.divIcon({
     className: "custom-marker",
-    html: `<div style="
+    html: html`<div style="
       width: 24px; height: 24px; border-radius: 50%;
       background-color: ${color}; border: 3px solid white;
       box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-    "></div>`,
+    "></div>`.toString(),
     iconSize: [24, 24],
     iconAnchor: [12, 12],
     popupAnchor: [0, -14],
@@ -153,21 +154,21 @@ export function MapView({
           dashArray: "6 4",
         });
 
-        // Popup for buyer zone
-        circle.bindPopup(`
+        // Popup for buyer zone. Every value goes through the html tag (escaped).
+        circle.bindPopup(html`
           <div style="min-width: 180px; font-family: system-ui, sans-serif;">
             <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
               <div style="width: 12px; height: 12px; border-radius: 50%; background: ${color}; border: 2px solid white; box-shadow: 0 1px 3px rgba(0,0,0,0.2);"></div>
               <strong style="font-size: 13px;">🏠 ${buyer.name}</strong>
             </div>
-            ${buyer.company ? `<span style="color: #666; font-size: 11px;">${buyer.company}</span><br/>` : ""}
+            ${buyer.company ? html`<span style="color: #666; font-size: 11px;">${buyer.company}</span><br/>` : ""}
             <span style="color: #666; font-size: 12px;">Area: ${area.name}</span><br/>
-            ${buyer.priceRange ? `<span style="color: #666; font-size: 12px;">Budget: ${buyer.priceRange}</span><br/>` : ""}
-            ${buyer.phone ? `<a href="tel:${buyer.phone}" style="font-size: 12px;">📞 ${buyer.phone}</a><br/>` : ""}
-            ${buyer.email ? `<a href="mailto:${buyer.email}" style="font-size: 12px;">✉️ ${buyer.email}</a><br/>` : ""}
+            ${buyer.priceRange ? html`<span style="color: #666; font-size: 12px;">Budget: ${buyer.priceRange}</span><br/>` : ""}
+            ${buyer.phone ? html`<a href="tel:${buyer.phone}" style="font-size: 12px;">📞 ${buyer.phone}</a><br/>` : ""}
+            ${buyer.email ? html`<a href="mailto:${buyer.email}" style="font-size: 12px;">✉️ ${buyer.email}</a><br/>` : ""}
             <a href="/buyers" style="font-size: 11px; margin-top: 4px; display: inline-block; color: #3B82F6;">View Buyer →</a>
           </div>
-        `);
+        `.toString());
 
         circle.addTo(buyerLayerRef.current!);
 
@@ -175,12 +176,12 @@ export function MapView({
         const label = L.marker([area.lat, area.lng], {
           icon: L.divIcon({
             className: "buyer-zone-label",
-            html: `<div style="
+            html: html`<div style="
               background: ${color}; color: white; padding: 2px 6px;
               border-radius: 4px; font-size: 10px; font-weight: 600;
               white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,0.3);
               border: 1px solid rgba(255,255,255,0.5);
-            ">${buyer.name.split(" ")[0]} — ${area.name}</div>`,
+            ">${buyer.name.split(" ")[0]} \u2014 ${area.name}</div>`.toString(),
             iconSize: [0, 0],
             iconAnchor: [0, -15],
           }),
@@ -211,23 +212,23 @@ export function MapView({
       // Find matching buyers
       const matchingBuyers = showBuyerZones ? findMatchingBuyers(lead, buyerZones) : [];
 
-      let buyerMatchHtml = "";
+      let buyerMatchHtml: ReturnType<typeof html> | "" = "";
       if (matchingBuyers.length > 0) {
         const buyerListItems = matchingBuyers.map((b, i) => {
           const color = BUYER_COLORS[buyerZones.indexOf(b) % BUYER_COLORS.length];
-          return `<div style="display: flex; align-items: center; gap: 4px; padding: 2px 0;">
+          return html`<div style="display: flex; align-items: center; gap: 4px; padding: 2px 0;">
             <div style="width: 8px; height: 8px; border-radius: 50%; background: ${color}; flex-shrink: 0;"></div>
-            <span>${b.name}${b.priceRange ? ` (${b.priceRange})` : ""}</span>
+            <span>${b.name}${b.priceRange ? html` (${b.priceRange})` : ""}</span>
           </div>`;
-        }).join("");
-        buyerMatchHtml = `
+        });
+        buyerMatchHtml = html`
           <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid #e5e7eb;">
             <strong style="font-size: 11px; color: #16A34A;">✅ Interested Buyers:</strong>
             <div style="font-size: 11px; margin-top: 2px;">${buyerListItems}</div>
           </div>
         `;
       } else if (showBuyerZones && buyerZones.length > 0) {
-        buyerMatchHtml = `
+        buyerMatchHtml = html`
           <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid #e5e7eb;">
             <span style="font-size: 11px; color: #9CA3AF;">No matching buyers for this area</span>
           </div>
@@ -238,17 +239,18 @@ export function MapView({
         icon: createMarkerIcon(lead.status),
       });
 
-      marker.bindPopup(`
+      // Every value goes through the html tag (escaped).
+      marker.bindPopup(html`
         <div style="min-width: 220px; font-family: system-ui, sans-serif;">
           <strong style="font-size: 14px;">${name}</strong><br/>
           <span style="color: #666; font-size: 12px;">${lead.propertyAddress}</span><br/>
           <span style="color: #666; font-size: 12px;">${[lead.propertyCity, lead.propertyState, lead.propertyZip].filter(Boolean).join(", ")}</span><br/>
-          ${lead.phone ? `<a href="tel:${lead.phone}" style="font-size: 12px;">📞 ${lead.phone}</a><br/>` : ""}
+          ${lead.phone ? html`<a href="tel:${lead.phone}" style="font-size: 12px;">📞 ${lead.phone}</a><br/>` : ""}
           <span style="display: inline-block; margin-top: 4px; padding: 2px 8px; border-radius: 9999px; font-size: 11px; color: white; background-color: ${STATUS_COLORS[lead.status] || "#6B7280"};">${statusLabel}</span>
           <br/><a href="/leads/${lead.id}" style="font-size: 12px; margin-top: 4px; display: inline-block;">View Details →</a>
           ${buyerMatchHtml}
         </div>
-      `);
+      `.toString());
 
       marker.addTo(markersRef.current!);
       bounds.push([lead.latitude, lead.longitude]);

@@ -1,9 +1,55 @@
-"use server";
+import "server-only";
 
+import { z } from "zod";
 import { db } from "@/lib/db";
 import { calendarEvents, leads, buyers } from "@/lib/db/schema";
-import { eq, and, gte, lte, lt, or, sql } from "drizzle-orm";
+import { eq, and, gte, lte, lt, or } from "drizzle-orm";
 import { getAuthenticatedUser } from "@/lib/auth";
+import { EVENT_TYPES, EVENT_STATUSES } from "@/lib/constants";
+import { NotFoundError } from "@/lib/errors";
+import { idSchema, parseWith } from "@/lib/validation";
+
+const EVENT_TYPE_VALUES = EVENT_TYPES.map((t) => t.value) as [string, ...string[]];
+const EVENT_STATUS_VALUES = EVENT_STATUSES.map((s) => s.value) as [string, ...string[]];
+
+// "YYYY-MM-DD", optionally followed by a time. Stored as sent (local time).
+const dateTime = z.string().max(40).regex(/^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/);
+
+// The event fields a client may send. googleEventId and syncStatus are set
+// by the Google sync code only; userId always comes from the session.
+const eventFields = {
+  title: z.string().trim().min(1).max(500),
+  description: z.string().max(20000).nullable().optional(),
+  eventType: z.enum(EVENT_TYPE_VALUES),
+  startAt: dateTime,
+  endAt: dateTime.nullable().optional(),
+  allDay: z.union([z.boolean(), z.literal(0), z.literal(1)]).optional(),
+  location: z.string().max(500).nullable().optional(),
+  status: z.enum(EVENT_STATUS_VALUES).optional(),
+  leadId: idSchema.nullable().optional(),
+  buyerId: idSchema.nullable().optional(),
+};
+const createEventSchema = z.object(eventFields);
+const updateEventSchema = z.object(eventFields).partial();
+
+/** A lead or buyer linked to an event must belong to the caller (404 otherwise). */
+async function assertOwnLinks(userId: string, leadId?: number | null, buyerId?: number | null) {
+  if (leadId) {
+    const [lead] = await db.select({ id: leads.id }).from(leads)
+      .where(and(eq(leads.id, leadId), eq(leads.userId, userId))).limit(1);
+    if (!lead) throw new NotFoundError("Lead not found");
+  }
+  if (buyerId) {
+    const [buyer] = await db.select({ id: buyers.id }).from(buyers)
+      .where(and(eq(buyers.id, buyerId), eq(buyers.userId, userId))).limit(1);
+    if (!buyer) throw new NotFoundError("Buyer not found");
+  }
+}
+
+// Join conditions that only ever attach the caller's own lead or buyer, so an
+// old event that points at someone else's row shows no details from it.
+const ownLead = (userId: string) => and(eq(calendarEvents.leadId, leads.id), eq(leads.userId, userId));
+const ownBuyer = (userId: string) => and(eq(calendarEvents.buyerId, buyers.id), eq(buyers.userId, userId));
 
 export async function getEvents(params: {
   start: string;
@@ -64,8 +110,8 @@ export async function getEvents(params: {
       buyerEmail: buyers.email,
     })
     .from(calendarEvents)
-    .leftJoin(leads, eq(calendarEvents.leadId, leads.id))
-    .leftJoin(buyers, eq(calendarEvents.buyerId, buyers.id))
+    .leftJoin(leads, ownLead(authUser.effectiveId))
+    .leftJoin(buyers, ownBuyer(authUser.effectiveId))
     .where(and(...conditions))
     .orderBy(calendarEvents.startAt);
 
@@ -107,26 +153,18 @@ export async function getEventById(id: number) {
       buyerEmail: buyers.email,
     })
     .from(calendarEvents)
-    .leftJoin(leads, eq(calendarEvents.leadId, leads.id))
-    .leftJoin(buyers, eq(calendarEvents.buyerId, buyers.id))
+    .leftJoin(leads, ownLead(authUser.effectiveId))
+    .leftJoin(buyers, ownBuyer(authUser.effectiveId))
     .where(and(eq(calendarEvents.id, id), eq(calendarEvents.userId, authUser.effectiveId)));
 
   return event || null;
 }
 
-export async function createEvent(data: {
-  title: string;
-  description?: string;
-  eventType: string;
-  startAt: string;
-  endAt?: string;
-  allDay?: boolean;
-  location?: string;
-  status?: string;
-  leadId?: number | null;
-  buyerId?: number | null;
-}) {
+/** Create an event for the caller. `input` is untrusted and checked here. */
+export async function createEvent(input: unknown) {
   const authUser = await getAuthenticatedUser();
+  const data = parseWith(createEventSchema, input);
+  await assertOwnLinks(authUser.effectiveId, data.leadId, data.buyerId);
 
   const [event] = await db
     .insert(calendarEvents)
@@ -148,24 +186,15 @@ export async function createEvent(data: {
   return event;
 }
 
-export async function updateEvent(
-  id: number,
-  data: Partial<{
-    title: string;
-    description: string | null;
-    eventType: string;
-    startAt: string;
-    endAt: string | null;
-    allDay: boolean;
-    location: string | null;
-    status: string;
-    leadId: number | null;
-    buyerId: number | null;
-    googleEventId: string | null;
-    syncStatus: string | null;
-  }>
-) {
+/**
+ * Update one of the caller's events. `input` is untrusted: only the client
+ * fields are accepted, and a new lead or buyer must be the caller's.
+ * Throws NotFoundError when the event is not the caller's.
+ */
+export async function updateEvent(id: number, input: unknown) {
   const authUser = await getAuthenticatedUser();
+  const data = parseWith(updateEventSchema, input);
+  await assertOwnLinks(authUser.effectiveId, data.leadId, data.buyerId);
 
   const updateData: Record<string, unknown> = {
     updatedAt: new Date().toLocaleString("sv-SE").replace(" ", "T"),
@@ -181,8 +210,6 @@ export async function updateEvent(
   if (data.status !== undefined) updateData.status = data.status;
   if (data.leadId !== undefined) updateData.leadId = data.leadId;
   if (data.buyerId !== undefined) updateData.buyerId = data.buyerId;
-  if (data.googleEventId !== undefined) updateData.googleEventId = data.googleEventId;
-  if (data.syncStatus !== undefined) updateData.syncStatus = data.syncStatus;
 
   const [event] = await db
     .update(calendarEvents)
@@ -190,6 +217,7 @@ export async function updateEvent(
     .where(and(eq(calendarEvents.id, id), eq(calendarEvents.userId, authUser.effectiveId)))
     .returning();
 
+  if (!event) throw new NotFoundError("Event not found");
   return event;
 }
 
@@ -224,8 +252,8 @@ export async function getUpcomingEvents(limit = 5) {
       buyerName: buyers.name,
     })
     .from(calendarEvents)
-    .leftJoin(leads, eq(calendarEvents.leadId, leads.id))
-    .leftJoin(buyers, eq(calendarEvents.buyerId, buyers.id))
+    .leftJoin(leads, ownLead(authUser.effectiveId))
+    .leftJoin(buyers, ownBuyer(authUser.effectiveId))
     .where(
       and(
         eq(calendarEvents.userId, authUser.effectiveId),
