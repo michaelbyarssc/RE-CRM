@@ -183,6 +183,8 @@ function parseDate(text: string, referenceDate: Date): Date | null {
   return null;
 }
 
+const MAX_PARSE_CHARS = 1000;
+
 function parseAddress(text: string): string | null {
   // Match common US address patterns: "123 Main St", "456 Oak Ave", etc.
   const addressMatch = text.match(
@@ -190,9 +192,12 @@ function parseAddress(text: string): string | null {
   );
   if (addressMatch) return addressMatch[1];
 
-  // Match "at [address]" pattern
+  // Match "at [address]" pattern: a number, then words, up to a comma, a
+  // period, a keyword or the end. Each word is "spaces then letters", so the
+  // pattern cannot backtrack badly on long runs of spaces (it used to take
+  // about 100 seconds on 5,000 spaces).
   const atAddress = text.match(
-    /\bat\s+(\d{1,6}\s+[A-Za-z\s]+?)(?:\s*[,.]|\s+(?:at|on|in|for|to|tomorrow|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d{1,2}(?::\d{2})?\s*(?:am|pm))|\s*$)/i
+    /\bat\s+(\d{1,6}(?:\s+[A-Za-z]+)+?)(?=\s*[,.]|\s+(?:at|on|in|for|to|tomorrow|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d{1,2}(?::\d{2})?\s*(?:am|pm))|\s*$)/i
   );
   if (atAddress && atAddress[1].trim().split(/\s+/).length >= 2) {
     return atAddress[1].trim();
@@ -212,7 +217,9 @@ export function parseNoteForEvent(
   leadName: string,
   localNow?: string
 ): ParsedEvent | null {
-  const text = noteContent.trim();
+  // Only the start of a note is parsed, so a very long note costs no more
+  // than a short one.
+  const text = noteContent.slice(0, MAX_PARSE_CHARS).trim();
 
   // Reference date: user's local time (passed from client to avoid timezone issues)
   // On the server (UTC), new Date("2026-04-20T17:25:00") treats it as local time.
