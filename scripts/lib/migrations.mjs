@@ -15,7 +15,7 @@ export const LOCKDOWN_FILE = path.join(
   REPO_ROOT,
   "supabase",
   "migrations",
-  "20261119000000_lock_down_public_api.sql"
+  "20261119211831_lock_down_public_api.sql"
 );
 
 // Tables that carry a user_id owner column.
