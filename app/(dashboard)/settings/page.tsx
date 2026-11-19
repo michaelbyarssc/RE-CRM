@@ -99,7 +99,10 @@ export default function SettingsPage() {
       window.history.replaceState({}, "", "/settings");
       fetchGoogleStatus();
     }
-    if (params.get("google_error")) {
+    if (params.get("google_error") === "invalid_state") {
+      toast.error("Google Calendar was not connected: the sign-in link was old or not started here. Please click Connect again.");
+      window.history.replaceState({}, "", "/settings");
+    } else if (params.get("google_error")) {
       toast.error(`Google Calendar error: ${params.get("google_error")}`);
       window.history.replaceState({}, "", "/settings");
     }

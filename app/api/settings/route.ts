@@ -1,11 +1,17 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import { z } from "zod";
 import { db } from "@/lib/db";
 import { settings } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
-import { getAuthenticatedUser } from "@/lib/auth";
+import { withAuth, readJson } from "@/lib/api-handler";
+import { parseWith } from "@/lib/validation";
 
-export async function GET() {
-  const authUser = await getAuthenticatedUser();
+// A flat object of setting names to values. Values that are not strings are
+// skipped, as before.
+const settingsSchema = z.record(z.string().min(1).max(100), z.unknown());
+const MAX_VALUE_LENGTH = 10_000;
+
+export const GET = withAuth(async ({ user: authUser }) => {
   const allSettings = await db.select().from(settings)
     .where(eq(settings.userId, authUser.effectiveId));
   const map: Record<string, string> = {};
@@ -13,14 +19,13 @@ export async function GET() {
     map[s.key] = s.value;
   }
   return NextResponse.json(map);
-}
+});
 
-export async function POST(req: NextRequest) {
-  const authUser = await getAuthenticatedUser();
-  const body: Record<string, string> = await req.json();
+export const POST = withAuth(async ({ req, user: authUser }) => {
+  const body = parseWith(settingsSchema, await readJson(req));
 
   for (const [key, value] of Object.entries(body)) {
-    if (typeof key !== "string" || typeof value !== "string") continue;
+    if (typeof value !== "string" || value.length > MAX_VALUE_LENGTH) continue;
 
     const existing = await db
       .select()
@@ -39,4 +44,4 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({ ok: true });
-}
+});

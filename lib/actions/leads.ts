@@ -1,12 +1,64 @@
-"use server";
+import "server-only";
 
+import { z } from "zod";
 import { db } from "@/lib/db";
 import { leads, tags, leadTags, csvImports } from "@/lib/db/schema";
 import { eq, like, or, inArray, sql, and } from "drizzle-orm";
 import { getAuthenticatedUser } from "@/lib/auth";
+import { LEAD_STATUSES } from "@/lib/constants";
+import { NotFoundError } from "@/lib/errors";
+import { parseWith } from "@/lib/validation";
 
 export type Lead = typeof leads.$inferSelect;
 export type Tag = typeof tags.$inferSelect;
+
+// The pipeline page asks for 500 at once.
+export const MAX_PAGE_SIZE = 500;
+
+const LEAD_STATUS_VALUES = LEAD_STATUSES.map((s) => s.value) as [string, ...string[]];
+export const leadStatusSchema = z.enum(LEAD_STATUS_VALUES);
+
+const text = (max: number) => z.string().max(max).nullable().optional();
+
+// The lead fields a user may edit. Everything else in a request body
+// (userId, id, createdAt, updatedAt, latitude, source, customData, ...) is dropped.
+const leadUpdateSchema = z.object({
+  firstName: text(200),
+  lastName: text(200),
+  propertyAddress: z.string().trim().min(1).max(500).optional(),
+  propertyCity: text(200),
+  propertyState: text(100),
+  propertyZip: text(20),
+  mailingAddress: text(500),
+  mailingCity: text(200),
+  mailingState: text(100),
+  mailingZip: text(20),
+  phone: text(50),
+  email: text(320),
+  status: leadStatusSchema.optional(),
+});
+
+async function tagsForLeads(leadIds: number[], userId: string) {
+  const byLead = new Map<number, Tag[]>();
+  if (leadIds.length === 0) return byLead;
+  const rows = await db
+    .select({ leadId: leadTags.leadId, tag: tags })
+    .from(leadTags)
+    .innerJoin(tags, and(eq(leadTags.tagId, tags.id), eq(tags.userId, userId)))
+    .where(inArray(leadTags.leadId, leadIds));
+  for (const r of rows) {
+    const list = byLead.get(r.leadId) ?? [];
+    list.push(r.tag);
+    byLead.set(r.leadId, list);
+  }
+  return byLead;
+}
+
+async function assertOwnTag(tagId: number, userId: string) {
+  const [tag] = await db.select({ id: tags.id }).from(tags)
+    .where(and(eq(tags.id, tagId), eq(tags.userId, userId))).limit(1);
+  if (!tag) throw new NotFoundError("Tag not found");
+}
 
 export async function getLeads(params?: {
   search?: string;
@@ -18,11 +70,11 @@ export async function getLeads(params?: {
   const authUser = await getAuthenticatedUser();
   const userId = authUser.effectiveId;
 
-  const page = params?.page ?? 1;
-  const pageSize = params?.pageSize ?? 50;
+  const page = Math.max(1, Math.floor(params?.page ?? 1));
+  const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, Math.floor(params?.pageSize ?? 50)));
   const offset = (page - 1) * pageSize;
 
-  let conditions = [eq(leads.userId, userId)];
+  const conditions = [eq(leads.userId, userId)];
 
   if (params?.search) {
     const term = `%${params.search}%`;
@@ -59,20 +111,9 @@ export async function getLeads(params?: {
 
   const total = countResult[0]?.count ?? 0;
 
-  // Get tags for each lead
-  const leadsWithTags = [];
-  for (const lead of rows) {
-    const leadTagRows = await db
-      .select({ tag: tags })
-      .from(leadTags)
-      .innerJoin(tags, eq(leadTags.tagId, tags.id))
-      .where(eq(leadTags.leadId, lead.id));
-
-    leadsWithTags.push({
-      ...lead,
-      tags: leadTagRows.map((r) => r.tag),
-    });
-  }
+  // Tags for the whole page in one query, only the caller's own tags.
+  const tagMap = await tagsForLeads(rows.map((l) => l.id), userId);
+  const leadsWithTags = rows.map((lead) => ({ ...lead, tags: tagMap.get(lead.id) ?? [] }));
 
   return { leads: leadsWithTags, total, page, pageSize };
 }
@@ -84,38 +125,53 @@ export async function getLead(id: number) {
     .limit(1);
   if (!lead) return null;
 
-  const leadTagRows = await db
-    .select({ tag: tags })
-    .from(leadTags)
-    .innerJoin(tags, eq(leadTags.tagId, tags.id))
-    .where(eq(leadTags.leadId, id));
-
-  return { ...lead, tags: leadTagRows.map((r) => r.tag) };
+  const tagMap = await tagsForLeads([id], authUser.effectiveId);
+  return { ...lead, tags: tagMap.get(id) ?? [] };
 }
 
 export async function updateLeadStatus(id: number, status: string) {
   const authUser = await getAuthenticatedUser();
+  const valid = parseWith(leadStatusSchema, status);
   await db.update(leads)
-    .set({ status, updatedAt: new Date().toISOString() })
+    .set({ status: valid, updatedAt: new Date().toISOString() })
     .where(and(eq(leads.id, id), eq(leads.userId, authUser.effectiveId)));
 }
 
-export async function updateLead(id: number, data: Partial<typeof leads.$inferInsert>) {
+/**
+ * Update the editable fields of one of the caller's leads. `data` is
+ * untrusted: it is checked against the allow-list and unknown fields are
+ * dropped. Throws NotFoundError when the lead is not the caller's.
+ */
+export async function updateLead(id: number, data: unknown) {
   const authUser = await getAuthenticatedUser();
-  await db.update(leads)
-    .set({ ...data, updatedAt: new Date().toISOString() })
-    .where(and(eq(leads.id, id), eq(leads.userId, authUser.effectiveId)));
+  const parsed = parseWith(leadUpdateSchema, data);
+  const fields = Object.fromEntries(Object.entries(parsed).filter(([, v]) => v !== undefined));
+
+  if (Object.keys(fields).length === 0) {
+    const [lead] = await db.select({ id: leads.id }).from(leads)
+      .where(and(eq(leads.id, id), eq(leads.userId, authUser.effectiveId))).limit(1);
+    if (!lead) throw new NotFoundError("Lead not found");
+    return;
+  }
+
+  const updated = await db.update(leads)
+    .set({ ...fields, updatedAt: new Date().toISOString() })
+    .where(and(eq(leads.id, id), eq(leads.userId, authUser.effectiveId)))
+    .returning({ id: leads.id });
+  if (updated.length === 0) throw new NotFoundError("Lead not found");
 }
 
 export async function bulkUpdateStatus(ids: number[], status: string) {
   const authUser = await getAuthenticatedUser();
+  const valid = parseWith(leadStatusSchema, status);
   await db.update(leads)
-    .set({ status, updatedAt: new Date().toISOString() })
+    .set({ status: valid, updatedAt: new Date().toISOString() })
     .where(and(inArray(leads.id, ids), eq(leads.userId, authUser.effectiveId)));
 }
 
 export async function bulkAddTag(leadIds: number[], tagId: number) {
   const authUser = await getAuthenticatedUser();
+  await assertOwnTag(tagId, authUser.effectiveId);
   // Verify leads belong to user
   const userLeads = await db.select({ id: leads.id }).from(leads)
     .where(and(inArray(leads.id, leadIds), eq(leads.userId, authUser.effectiveId)));
@@ -150,7 +206,8 @@ export async function addTagToLead(leadId: number, tagId: number) {
   const authUser = await getAuthenticatedUser();
   const [lead] = await db.select({ id: leads.id }).from(leads)
     .where(and(eq(leads.id, leadId), eq(leads.userId, authUser.effectiveId))).limit(1);
-  if (!lead) return;
+  if (!lead) throw new NotFoundError("Lead not found");
+  await assertOwnTag(tagId, authUser.effectiveId);
 
   try {
     await db.insert(leadTags).values({ leadId, tagId });

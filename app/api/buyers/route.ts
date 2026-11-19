@@ -1,24 +1,36 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import { z } from "zod";
 import { db } from "@/lib/db";
 import { buyers } from "@/lib/db/schema";
 import { eq, and, sql } from "drizzle-orm";
-import { getAuthenticatedUser } from "@/lib/auth";
+import { withAuth, readJson } from "@/lib/api-handler";
+import { optionalText, parseId, parseWith } from "@/lib/validation";
 
-export async function GET() {
-  const authUser = await getAuthenticatedUser();
+const buyerSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  company: optionalText(200),
+  phone: optionalText(50),
+  email: optionalText(320),
+  buyCriteria: z
+    .object({ areas: z.string().max(5000).optional(), priceRange: z.string().max(200).optional() })
+    .nullable()
+    .optional(),
+  notes: optionalText(5000),
+});
+
+export const GET = withAuth(async ({ user }) => {
   const allBuyers = await db.select().from(buyers)
-    .where(eq(buyers.userId, authUser.effectiveId))
+    .where(eq(buyers.userId, user.effectiveId))
     .orderBy(sql`${buyers.createdAt} DESC`);
   return NextResponse.json(allBuyers);
-}
+});
 
-export async function POST(req: NextRequest) {
-  const authUser = await getAuthenticatedUser();
-  const body = await req.json();
+export const POST = withAuth(async ({ req, user }) => {
+  const body = parseWith(buyerSchema, await readJson(req));
   const [buyer] = await db
     .insert(buyers)
     .values({
-      userId: authUser.effectiveId,
+      userId: user.effectiveId,
       name: body.name,
       company: body.company,
       phone: body.phone,
@@ -28,13 +40,10 @@ export async function POST(req: NextRequest) {
     })
     .returning();
   return NextResponse.json(buyer);
-}
+});
 
-export async function DELETE(req: NextRequest) {
-  const authUser = await getAuthenticatedUser();
-  const { searchParams } = new URL(req.url);
-  const id = Number(searchParams.get("id"));
-  if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
-  await db.delete(buyers).where(and(eq(buyers.id, id), eq(buyers.userId, authUser.effectiveId)));
+export const DELETE = withAuth(async ({ req, user }) => {
+  const id = parseId(req.nextUrl.searchParams.get("id"));
+  await db.delete(buyers).where(and(eq(buyers.id, id), eq(buyers.userId, user.effectiveId)));
   return NextResponse.json({ ok: true });
-}
+});

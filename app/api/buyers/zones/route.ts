@@ -1,9 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import { z } from "zod";
 import { db } from "@/lib/db";
 import { buyers } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { geocodeAddress } from "@/lib/geocode";
-import { getAuthenticatedUser } from "@/lib/auth";
+import { withAuth, readJson } from "@/lib/api-handler";
+import { idSchema, parseWith } from "@/lib/validation";
 
 interface GeocodedArea {
   name: string;
@@ -15,8 +17,7 @@ interface GeocodedArea {
 /**
  * GET - Return all buyers with their geocoded zone data for the map
  */
-export async function GET() {
-  const authUser = await getAuthenticatedUser();
+export const GET = withAuth(async ({ user: authUser }) => {
   const allBuyers = await db.select().from(buyers)
     .where(eq(buyers.userId, authUser.effectiveId));
 
@@ -39,20 +40,14 @@ export async function GET() {
     .filter(Boolean);
 
   return NextResponse.json(zones);
-}
+});
 
 /**
  * POST - Geocode a buyer's areas and update their record
  * Body: { buyerId: number }
  */
-export async function POST(req: NextRequest) {
-  const authUser = await getAuthenticatedUser();
-  const body = await req.json();
-  const buyerId = body.buyerId;
-
-  if (!buyerId) {
-    return NextResponse.json({ error: "buyerId required" }, { status: 400 });
-  }
+export const POST = withAuth(async ({ req, user: authUser }) => {
+  const { buyerId } = parseWith(z.object({ buyerId: idSchema }), await readJson(req));
 
   // Fetch the buyer (scoped to user)
   const [buyer] = await db.select().from(buyers)
@@ -113,4 +108,4 @@ export async function POST(req: NextRequest) {
     .where(and(eq(buyers.id, buyerId), eq(buyers.userId, authUser.effectiveId)));
 
   return NextResponse.json({ geocoded: geocodedAreas.length, total: areaParts.length });
-}
+});
