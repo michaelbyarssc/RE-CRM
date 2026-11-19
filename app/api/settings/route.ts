@@ -9,9 +9,17 @@ import { parseWith } from "@/lib/validation";
 // A flat object of setting names to values. Values that are not strings are
 // skipped, as before. Names starting with "_" are reserved for the server
 // (for example the Google connect marker): never returned, never accepted.
-const settingsSchema = z.record(
-  z.string().min(1).max(100).refine((k) => !k.startsWith("_")),
-  z.unknown()
+// A name is letters, digits, "_", "." or "-", 1 to 100 characters, and one
+// request carries at most 50 names, so one request cannot store unlimited rows.
+const SETTING_NAME = /^[A-Za-z0-9.-][A-Za-z0-9_.-]{0,99}$/;
+const MAX_KEYS_PER_REQUEST = 50;
+const settingsSchema = z.custom<Record<string, unknown>>(
+  (v) =>
+    !!v &&
+    typeof v === "object" &&
+    !Array.isArray(v) &&
+    Object.keys(v).length <= MAX_KEYS_PER_REQUEST &&
+    Object.keys(v).every((k) => SETTING_NAME.test(k))
 );
 const MAX_VALUE_LENGTH = 10_000;
 
