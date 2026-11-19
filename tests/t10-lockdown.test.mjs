@@ -1,5 +1,5 @@
 // T10 (part 2). Runs after the runner applied
-// supabase/migrations/20261119000000_lock_down_public_api.sql.
+// supabase/migrations/20261119211831_lock_down_public_api.sql.
 // The public API roles must be denied everything; row level security must be
 // on for every table. The rest of the suite runs after the lockdown, which
 // proves the app still works.
