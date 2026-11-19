@@ -8,14 +8,22 @@
 //    API role grants (so it is as exposed as production is today), create
 //    the schema with scripts/lib/migrations.mjs.
 // 3. Run the "before lockdown" checks, then apply the lockdown file.
-// 4. Build the app (next build), start the Supabase Auth stub and two app
-//    servers (one with CRON_SECRET, one without), run the tests, tear down.
+// 4. Build the app (next build, with no encryption key), start the Supabase
+//    Auth stub and three app servers (the main one; one without CRON_SECRET;
+//    one without SETTINGS_ENCRYPTION_KEY), run the tests, tear down.
+// 5. Scan every server log, the build log, the network log and the response
+//    log for the ZZSECRET marker that every dummy secret carries and for the
+//    run's encryption key, and the server logs for stored ciphertext. Any hit
+//    fails the run.
+//
+// Each run makes a new random encryption key: the app servers get it as
+// SETTINGS_ENCRYPTION_KEY, the tests as TEST_SETTINGS_ENCRYPTION_KEY.
 //
 // Options (environment): TEST_DATABASE_URL, TEST_APP_PORT, TEST_AUTH_PORT,
 // TEST_SKIP_BUILD=1 (reuse the last build), TEST_FILES (space separated list).
 
 import { spawn, spawnSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -54,8 +62,13 @@ const networkLog = path.join(outDir, "network.jsonl");
 const responseLog = path.join(outDir, "responses.jsonl");
 writeFileSync(networkLog, "");
 writeFileSync(responseLog, "");
+// The tests write this file to switch on the stand-in for Google's token
+// endpoint (see helpers/no-network.cjs) and remove it afterwards.
+const googleStubFile = path.join(outDir, "google-token-stub.json");
+const LEAK_MARKER = "ZZSECRET";
 
 const cronSecret = randomBytes(24).toString("hex");
+const settingsKey = randomBytes(32).toString("base64");
 const baseEnv = {
   PATH: process.env.PATH,
   HOME: process.env.HOME,
@@ -72,7 +85,9 @@ const appEnv = {
   GOOGLE_CLIENT_ID,
   GOOGLE_CLIENT_SECRET,
   CRON_SECRET: cronSecret,
+  SETTINGS_ENCRYPTION_KEY: settingsKey,
   TEST_NETWORK_LOG: networkLog,
+  TEST_GOOGLE_STUB_FILE: googleStubFile,
   NODE_OPTIONS: `--require ${path.join(here, "helpers", "no-network.cjs")}`,
 };
 const testEnv = {
@@ -80,10 +95,14 @@ const testEnv = {
   TEST_DATABASE_URL: cfg.databaseUrl,
   TEST_APP_URL: cfg.appUrl,
   TEST_NOCRON_URL: cfg.noCronUrl,
+  TEST_NOKEY_URL: cfg.noKeyUrl,
   TEST_AUTH_URL: cfg.authUrl,
   TEST_CRON_SECRET: cronSecret,
+  TEST_SETTINGS_ENCRYPTION_KEY: settingsKey,
   TEST_NETWORK_LOG: networkLog,
+  TEST_GOOGLE_STUB_FILE: googleStubFile,
   TEST_RESPONSE_LOG: responseLog,
+  TEST_SERVER_LOG_DIR: outDir,
   TEST_REPO_ROOT: root,
 };
 
@@ -138,18 +157,23 @@ function runNode(args, env, label) {
   });
 }
 
+// A variable set to undefined in extraEnv is left out of the server's environment.
 function startServer(port, extraEnv, name) {
-  const env = { ...appEnv, ...extraEnv, PORT: String(port) };
+  const env = Object.fromEntries(
+    Object.entries({ ...appEnv, ...extraEnv, PORT: String(port) }).filter(([, v]) => v !== undefined)
+  );
   const child = spawn(
     process.execPath,
     [path.join(root, "node_modules", "next", "dist", "bin", "next"), "start", "-H", "127.0.0.1", "-p", String(port)],
     { cwd: root, env, detached: true, stdio: ["ignore", "pipe", "pipe"] }
   );
-  // Written as it arrives, so tests can read the server log while it runs.
+  // Written as it arrives, so tests can read the server log while it runs
+  // (TEST_SERVER_LOG_DIR/<name>.log).
   const file = path.join(outDir, `${name}.log`);
   writeFileSync(file, "");
   child.stdout.on("data", (d) => appendFileSync(file, d));
   child.stderr.on("data", (d) => appendFileSync(file, d));
+  child.exited = new Promise((resolve) => child.on("exit", resolve));
   children.push(child);
   return child;
 }
@@ -176,8 +200,50 @@ async function teardown() {
       // already gone
     }
   }
+  await Promise.race([
+    Promise.all(children.map((c) => c.exited)),
+    new Promise((r) => setTimeout(r, 10_000)),
+  ]);
   if (stub) await new Promise((r) => stub.server.close(r));
   if (sql) await sql.end({ timeout: 5 });
+  rmSync(googleStubFile, { force: true });
+}
+
+// Leak scan, after the servers have stopped. Prints file and line numbers,
+// never the line. Fails the run when:
+// - any server log, the build log, the network log or the response log
+//   contains LEAK_MARKER (every dummy secret carries it) or the run's own
+//   encryption key (the exact base64 text);
+// - any SERVER log contains stored ciphertext (enc:v<digits>:).
+function scanLogsForLeaks() {
+  const files = readdirSync(outDir).filter(
+    (f) => f.endsWith(".log") || f === path.basename(networkLog) || f === path.basename(responseLog)
+  );
+  const isServerLog = (f) => /^app.*\.log$/.test(f);
+  const checks = [
+    { what: LEAK_MARKER, applies: () => true, test: (line) => line.includes(LEAK_MARKER) },
+    { what: "the run's encryption key", applies: () => true, test: (line) => line.includes(settingsKey) },
+    { what: "stored ciphertext (enc:v<N>:)", applies: isServerLog, test: (line) => /enc:v\d+:/.test(line) },
+  ];
+  let ok = true;
+  for (const check of checks) {
+    const hits = [];
+    for (const f of files.filter(check.applies)) {
+      readFileSync(path.join(outDir, f), "utf8")
+        .split("\n")
+        .forEach((line, i) => {
+          if (check.test(line)) hits.push(`${f} line ${i + 1}`);
+        });
+    }
+    if (hits.length) {
+      console.error(`[test runner] leak scan: ${check.what} found in ${hits.join(", ")}`);
+      ok = false;
+    }
+  }
+  if (ok) {
+    log(`leak scan: no ${LEAK_MARKER}, no encryption key and no server-log ciphertext in ${files.join(", ")}`);
+  }
+  return ok;
 }
 
 async function main() {
@@ -202,7 +268,10 @@ async function main() {
     log("building the app (output in tests/.output/build.log)");
     const r = spawnSync(process.execPath, [path.join(root, "node_modules", "next", "dist", "bin", "next"), "build"], {
       cwd: root,
-      env: { ...appEnv, NODE_OPTIONS: "" },
+      // No encryption key at build time: the key must only be read when used.
+      env: Object.fromEntries(
+        Object.entries({ ...appEnv, NODE_OPTIONS: "" }).filter(([k]) => k !== "SETTINGS_ENCRYPTION_KEY")
+      ),
       encoding: "utf8",
       maxBuffer: 64 * 1024 * 1024,
     });
@@ -217,9 +286,11 @@ async function main() {
   log(`auth stub on ${cfg.authUrl}`);
   startServer(cfg.appPort, {}, "app");
   startServer(cfg.noCronPort, { CRON_SECRET: "" }, "app-nocron");
+  startServer(cfg.noKeyPort, { SETTINGS_ENCRYPTION_KEY: undefined }, "app-nokey");
   await waitForHttp(`${cfg.appUrl}/api/auth/me`);
   await waitForHttp(`${cfg.noCronUrl}/api/auth/me`);
-  log(`app on ${cfg.appUrl}, app without CRON_SECRET on ${cfg.noCronUrl}`);
+  await waitForHttp(`${cfg.noKeyUrl}/api/auth/me`);
+  log(`app on ${cfg.appUrl}, without CRON_SECRET on ${cfg.noCronUrl}, without SETTINGS_ENCRYPTION_KEY on ${cfg.noKeyUrl}`);
 
   const files = process.env.TEST_FILES
     ? process.env.TEST_FILES.split(/\s+/).filter(Boolean)
@@ -244,5 +315,6 @@ try {
 } finally {
   await teardown();
 }
+if (!scanLogsForLeaks()) code = 1;
 log(code === 0 ? "ALL PASSED" : "FAILURES (see above)");
 process.exit(code);

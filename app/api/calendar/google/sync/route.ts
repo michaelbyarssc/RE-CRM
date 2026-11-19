@@ -122,7 +122,7 @@ export const POST = withAuth(async ({ user: authUser }) => {
       }
     }
   } catch (err) {
-    console.error("Pull from Google failed:", err);
+    console.error(`Pull from Google failed: user ${userId}, ${err instanceof Error ? err.name : "unknown error"}.`);
     errors++;
   }
 

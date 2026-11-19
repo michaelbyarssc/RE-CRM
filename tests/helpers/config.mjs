@@ -70,14 +70,17 @@ export function testConfig(env = process.env) {
   const databaseUrl = env.TEST_DATABASE_URL || DEFAULT_TEST_DATABASE_URL;
   const appPort = Number(env.TEST_APP_PORT || 3100);
   const noCronPort = Number(env.TEST_APP_NOCRON_PORT || appPort + 1);
+  const noKeyPort = Number(env.TEST_APP_NOKEY_PORT || appPort + 2);
   const authPort = Number(env.TEST_AUTH_PORT || 54329);
   return {
     databaseUrl,
     appPort,
     noCronPort,
+    noKeyPort,
     authPort,
     appUrl: `http://127.0.0.1:${appPort}`,
     noCronUrl: `http://127.0.0.1:${noCronPort}`,
+    noKeyUrl: `http://127.0.0.1:${noKeyPort}`,
     authUrl: `http://127.0.0.1:${authPort}`,
   };
 }

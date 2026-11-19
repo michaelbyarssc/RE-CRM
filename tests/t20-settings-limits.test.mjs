@@ -64,5 +64,19 @@ test("T20 the keys the settings page sends still save and read back", async () =
   assert.equal((await api("/api/settings", { method: "POST", user: A, body: { ...skip, skipengine_api_key: "" } })).status, 200);
   const got = await api("/api/settings", { user: A });
   assert.equal(got.status, 200);
-  assert.deepEqual(got.json, { ...skip, skipengine_api_key: "", ...twilio });
+  // Changed in the secrets work: GET never returns a saved key, only whether
+  // it is set and its last 4 characters (null here: the test values are short),
+  // and an empty value now means "keep what is saved", so skipengine_api_key
+  // is still set. Only the phone number is shown in full.
+  const saved = { set: true, last4: null };
+  assert.deepEqual(got.json, {
+    values: { twilio_phone_number: twilio.twilio_phone_number },
+    secrets: {
+      reiskip_api_key: saved,
+      batchskiptracing_api_key: saved,
+      skipengine_api_key: saved,
+      twilio_account_sid: saved,
+      twilio_auth_token: saved,
+    },
+  });
 });

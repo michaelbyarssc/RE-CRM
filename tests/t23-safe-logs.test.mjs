@@ -36,7 +36,9 @@ const CASES = [
     label: "settings save",
     path: "/api/settings",
     marker: () => `SECRETTOKEN${randomBytes(6).toString("hex")}`,
-    body: (m) => ({ twilio_auth_token: `${m}\u0000` }),
+    // Secrets are encrypted before the database sees them, so a NUL in one no
+    // longer fails; the public phone number is still stored as typed.
+    body: (m) => ({ twilio_phone_number: `${m}\u0000` }),
   },
   {
     label: "lead create",
