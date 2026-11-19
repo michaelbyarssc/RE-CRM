@@ -15,40 +15,29 @@ import {
 } from "@/components/ui/card";
 
 export default function LoginPage() {
-  const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
   const router = useRouter();
-  const supabase = createSupabaseBrowserClient();
 
+  // Accounts are created by the owner for paying customers only, so this
+  // page only signs in. The Supabase client is created on submit, in the
+  // browser, not while the page is prerendered at build time.
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    setMessage("");
     setLoading(true);
 
     try {
-      if (isSignUp) {
-        const { error } = await supabase.auth.signUp({
-          email,
-          password,
-        });
-        if (error) throw error;
-        setMessage(
-          "Account created! Check your email to confirm, or sign in if email confirmation is disabled."
-        );
-      } else {
-        const { error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-        if (error) throw error;
-        router.push("/");
-        router.refresh();
-      }
+      const supabase = createSupabaseBrowserClient();
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      if (error) throw error;
+      router.push("/");
+      router.refresh();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "An error occurred");
     } finally {
@@ -60,11 +49,7 @@ export default function LoginPage() {
     <Card className="w-full max-w-md">
       <CardHeader className="text-center">
         <CardTitle className="text-2xl font-bold text-gold">Deal Desk Pro</CardTitle>
-        <CardDescription>
-          {isSignUp
-            ? "Create an account to get started"
-            : "Sign in to your account"}
-        </CardDescription>
+        <CardDescription>Sign in to your account</CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -98,34 +83,13 @@ export default function LoginPage() {
             </div>
           )}
 
-          {message && (
-            <div className="text-sm text-green-400 bg-green-950/50 border border-green-900/50 p-3 rounded-md">
-              {message}
-            </div>
-          )}
-
           <Button type="submit" className="w-full" disabled={loading}>
-            {loading
-              ? "Loading..."
-              : isSignUp
-              ? "Create Account"
-              : "Sign In"}
+            {loading ? "Loading..." : "Sign In"}
           </Button>
         </form>
 
         <div className="mt-4 text-center text-sm text-muted-foreground">
-          {isSignUp ? "Already have an account?" : "Don't have an account?"}{" "}
-          <button
-            type="button"
-            className="text-primary underline-offset-4 hover:underline font-medium"
-            onClick={() => {
-              setIsSignUp(!isSignUp);
-              setError("");
-              setMessage("");
-            }}
-          >
-            {isSignUp ? "Sign In" : "Sign Up"}
-          </button>
+          Accounts are for Deal Desk Pro customers only.
         </div>
       </CardContent>
     </Card>

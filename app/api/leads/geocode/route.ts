@@ -1,12 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { leads } from "@/lib/db/schema";
 import { isNull, sql, and, eq } from "drizzle-orm";
 import { geocodeAddress } from "@/lib/geocode";
-import { getAuthenticatedUser } from "@/lib/auth";
+import { withAuth } from "@/lib/api-handler";
 
-export async function POST() {
-  const authUser = await getAuthenticatedUser();
+export const POST = withAuth(async ({ user: authUser }) => {
   const userId = authUser.effectiveId;
 
   // Find leads without coordinates (scoped to user)
@@ -41,7 +40,7 @@ export async function POST() {
     if (result) {
       await db.update(leads)
         .set({ latitude: result.lat, longitude: result.lon })
-        .where(eq(leads.id, lead.id));
+        .where(and(eq(leads.id, lead.id), eq(leads.userId, userId)));
       geocoded++;
     }
 
@@ -58,10 +57,9 @@ export async function POST() {
     geocoded,
     remaining: remaining?.count ?? 0,
   });
-}
+});
 
-export async function GET() {
-  const authUser = await getAuthenticatedUser();
+export const GET = withAuth(async ({ user: authUser }) => {
   const userId = authUser.effectiveId;
 
   // Return all geocoded leads for the map (scoped to user)
@@ -100,4 +98,4 @@ export async function GET() {
     total: total?.count ?? 0,
     ungeocoded: ungeocoded?.count ?? 0,
   });
-}
+});

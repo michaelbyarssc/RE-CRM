@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import { z } from "zod";
 import { getNotes, createNote, deleteNote } from "@/lib/actions/notes";
 import { createEvent } from "@/lib/actions/calendar";
 import { parseNoteForEvent } from "@/lib/parse-note-events";
@@ -6,19 +7,31 @@ import { autoSyncEvent } from "@/lib/google-calendar";
 import { db } from "@/lib/db";
 import { leads } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
-import { getAuthenticatedUser } from "@/lib/auth";
+import { withAuth, readJson } from "@/lib/api-handler";
+import { idSchema, parseId, parseWith } from "@/lib/validation";
 
-export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const leadId = Number(searchParams.get("leadId"));
-  if (!leadId) return NextResponse.json({ error: "leadId required" }, { status: 400 });
+const MAX_NOTE_LENGTH = 10_000;
+
+const noteSchema = z.object({
+  leadId: idSchema,
+  content: z.string().min(1).max(MAX_NOTE_LENGTH),
+  // The browser's local time, "YYYY-MM-DDTHH:mm:ss". Anything else is ignored.
+  localNow: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/)
+    .optional()
+    .catch(undefined),
+});
+
+export const GET = withAuth(async ({ req }) => {
+  const leadId = parseId(req.nextUrl.searchParams.get("leadId"));
   const notes = await getNotes(leadId);
   return NextResponse.json(notes);
-}
+});
 
-export async function POST(req: NextRequest) {
-  const authUser = await getAuthenticatedUser();
-  const body = await req.json();
+export const POST = withAuth(async ({ req, user: authUser }) => {
+  const body = parseWith(noteSchema, await readJson(req));
+  // 404 when the lead is not the caller's.
   const note = await createNote(body.leadId, body.content);
 
   // Try to auto-create a calendar event from the note
@@ -57,12 +70,10 @@ export async function POST(req: NextRequest) {
       ? { id: calendarEvent.id, title: calendarEvent.title, startAt: calendarEvent.startAt, eventType: calendarEvent.eventType }
       : null,
   });
-}
+});
 
-export async function DELETE(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const id = Number(searchParams.get("id"));
-  if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+export const DELETE = withAuth(async ({ req }) => {
+  const id = parseId(req.nextUrl.searchParams.get("id"));
   await deleteNote(id);
   return NextResponse.json({ ok: true });
-}
+});

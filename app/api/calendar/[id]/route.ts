@@ -1,46 +1,36 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { getEventById, updateEvent, deleteEvent } from "@/lib/actions/calendar";
 import { autoSyncEvent, autoDeleteFromGoogle } from "@/lib/google-calendar";
-import { getAuthenticatedUser } from "@/lib/auth";
+import { withAuth, readJson } from "@/lib/api-handler";
+import { NotFoundError } from "@/lib/errors";
+import { parseId } from "@/lib/validation";
 
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const { id } = await params;
-  const event = await getEventById(Number(id));
-  if (!event) return NextResponse.json({ error: "Not found" }, { status: 404 });
+export const GET = withAuth<{ id: string }>(async ({ params }) => {
+  const event = await getEventById(parseId(params.id));
+  if (!event) throw new NotFoundError();
   return NextResponse.json(event);
-}
+});
 
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const authUser = await getAuthenticatedUser();
-  const { id } = await params;
-  const body = await req.json();
-  const event = await updateEvent(Number(id), body);
+export const PATCH = withAuth<{ id: string }>(async ({ req, user, params }) => {
+  const id = parseId(params.id);
+  const event = await updateEvent(id, await readJson(req));
 
   // Immediately push update to Google Calendar
-  if (event) autoSyncEvent({ ...event, userId: authUser.effectiveId });
+  autoSyncEvent({ ...event, userId: user.effectiveId });
 
   return NextResponse.json(event);
-}
+});
 
-export async function DELETE(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const authUser = await getAuthenticatedUser();
-  const { id } = await params;
+export const DELETE = withAuth<{ id: string }>(async ({ user, params }) => {
+  const id = parseId(params.id);
 
   // Get event first to check for Google ID before deleting
-  const event = await getEventById(Number(id));
-  await deleteEvent(Number(id));
+  const event = await getEventById(id);
+  if (!event) throw new NotFoundError();
+  await deleteEvent(id);
 
   // Immediately delete from Google Calendar
-  if (event) autoDeleteFromGoogle(event.googleEventId, authUser.effectiveId);
+  autoDeleteFromGoogle(event.googleEventId, user.effectiveId);
 
   return NextResponse.json({ ok: true });
-}
+});

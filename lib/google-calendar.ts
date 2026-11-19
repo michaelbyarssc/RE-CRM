@@ -1,3 +1,5 @@
+import "server-only";
+
 import { db } from "@/lib/db";
 import { googleCalendarTokens, calendarEvents } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
@@ -13,7 +15,8 @@ const SCOPES = [
   "https://www.googleapis.com/auth/calendar.events",
 ];
 
-export function getGoogleAuthUrl() {
+/** The Google consent URL. `state` comes from lib/google-oauth-state.ts. */
+export function getGoogleAuthUrl(state: string) {
   const params = new URLSearchParams({
     client_id: GOOGLE_CLIENT_ID,
     redirect_uri: REDIRECT_URI,
@@ -21,6 +24,7 @@ export function getGoogleAuthUrl() {
     scope: SCOPES.join(" "),
     access_type: "offline",
     prompt: "consent",
+    state,
   });
   return `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
 }
@@ -73,15 +77,11 @@ export async function refreshAccessToken(refreshToken: string) {
   }>;
 }
 
-export async function getValidToken(userId?: string): Promise<{ accessToken: string; tokenRow: typeof googleCalendarTokens.$inferSelect } | null> {
-  let row;
-  if (userId) {
-    [row] = await db.select().from(googleCalendarTokens)
-      .where(eq(googleCalendarTokens.userId, userId)).limit(1);
-  } else {
-    // Fallback for system processes
-    [row] = await db.select().from(googleCalendarTokens).limit(1);
-  }
+export async function getValidToken(userId: string): Promise<{ accessToken: string; tokenRow: typeof googleCalendarTokens.$inferSelect } | null> {
+  // A user id is required: there is no "any user's token" fallback.
+  if (!userId) throw new Error("getValidToken needs a user id");
+  const [row] = await db.select().from(googleCalendarTokens)
+    .where(eq(googleCalendarTokens.userId, userId)).limit(1);
   if (!row) return null;
 
   // Check if token is expired (with 5 min buffer)
@@ -101,7 +101,7 @@ export async function getValidToken(userId?: string): Promise<{ accessToken: str
           expiresAt: newExpiry,
           updatedAt: new Date().toISOString(),
         })
-        .where(eq(googleCalendarTokens.id, row.id));
+        .where(and(eq(googleCalendarTokens.id, row.id), eq(googleCalendarTokens.userId, userId)));
 
       return { accessToken: refreshed.access_token, tokenRow: { ...row, accessToken: refreshed.access_token, expiresAt: newExpiry } };
     } catch {
@@ -177,6 +177,7 @@ export async function pushEventToGoogle(
   calendarId: string,
   crmEvent: {
     id: number;
+    userId: string;
     title: string;
     description?: string | null;
     location?: string | null;
@@ -192,7 +193,7 @@ export async function pushEventToGoogle(
   let res;
   if (crmEvent.googleEventId) {
     res = await gcalFetch(
-      `/calendars/${encodeURIComponent(calendarId)}/events/${crmEvent.googleEventId}`,
+      `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(crmEvent.googleEventId)}`,
       accessToken,
       { method: "PUT", body: JSON.stringify(gcalEvent) }
     );
@@ -210,7 +211,7 @@ export async function pushEventToGoogle(
     await db
       .update(calendarEvents)
       .set({ syncStatus: "error", updatedAt: new Date().toISOString() })
-      .where(eq(calendarEvents.id, crmEvent.id));
+      .where(and(eq(calendarEvents.id, crmEvent.id), eq(calendarEvents.userId, crmEvent.userId)));
     return null;
   }
 
@@ -224,7 +225,7 @@ export async function pushEventToGoogle(
       syncStatus: "synced",
       updatedAt: new Date().toISOString(),
     })
-    .where(eq(calendarEvents.id, crmEvent.id));
+    .where(and(eq(calendarEvents.id, crmEvent.id), eq(calendarEvents.userId, crmEvent.userId)));
 
   return data;
 }
@@ -235,7 +236,7 @@ export async function deleteEventFromGoogle(
   googleEventId: string
 ) {
   const res = await gcalFetch(
-    `/calendars/${encodeURIComponent(calendarId)}/events/${googleEventId}`,
+    `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(googleEventId)}`,
     accessToken,
     { method: "DELETE" }
   );
@@ -274,7 +275,7 @@ export async function autoSyncEvent(crmEvent: {
  * Auto-delete a CRM event from Google Calendar immediately.
  * Now requires userId to find the correct token.
  */
-export async function autoDeleteFromGoogle(googleEventId: string | null | undefined, userId?: string) {
+export async function autoDeleteFromGoogle(googleEventId: string | null | undefined, userId: string) {
   if (!googleEventId) return;
   try {
     const token = await getValidToken(userId);
