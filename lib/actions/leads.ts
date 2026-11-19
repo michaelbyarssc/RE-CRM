@@ -6,7 +6,7 @@ import { leads, tags, leadTags, csvImports } from "@/lib/db/schema";
 import { eq, like, or, inArray, sql, and } from "drizzle-orm";
 import { getAuthenticatedUser } from "@/lib/auth";
 import { LEAD_STATUSES } from "@/lib/constants";
-import { NotFoundError } from "@/lib/errors";
+import { BadRequestError, NotFoundError } from "@/lib/errors";
 import { parseWith } from "@/lib/validation";
 
 export type Lead = typeof leads.$inferSelect;
@@ -227,15 +227,24 @@ export async function createTag(name: string, color: string) {
   return tag;
 }
 
+// One import request carries at most this many rows (400 above it).
+export const MAX_IMPORT_ROWS = 25_000;
+const IMPORT_BATCH_SIZE = 500;
+
 export async function importLeads(
   data: Record<string, string>[],
   columnMapping: Record<string, string>,
   filename: string
 ) {
+  if (data.length > MAX_IMPORT_ROWS) {
+    throw new BadRequestError(`At most ${MAX_IMPORT_ROWS} rows per import`);
+  }
   const authUser = await getAuthenticatedUser();
   const userId = authUser.effectiveId;
-  let imported = 0;
   let skipped = 0;
+
+  type NewLead = typeof leads.$inferInsert;
+  const candidates: { values: NewLead; normalized: string }[] = [];
 
   for (const row of data) {
     const mapped: Record<string, string> = {};
@@ -255,24 +264,9 @@ export async function importLeads(
       continue;
     }
 
-    // Check for duplicate by property address (scoped to user)
-    const normalized = mapped.propertyAddress.toLowerCase().replace(/\s+/g, " ").trim();
-    const [existing] = await db
-      .select({ id: leads.id })
-      .from(leads)
-      .where(and(
-        eq(leads.userId, userId),
-        sql`lower(replace(${leads.propertyAddress}, '  ', ' ')) = ${normalized}`
-      ))
-      .limit(1);
-
-    if (existing) {
-      skipped++;
-      continue;
-    }
-
-    await db.insert(leads)
-      .values({
+    candidates.push({
+      normalized: mapped.propertyAddress.toLowerCase().replace(/\s+/g, " ").trim(),
+      values: {
         userId,
         firstName: mapped.firstName || null,
         lastName: mapped.lastName || null,
@@ -288,10 +282,48 @@ export async function importLeads(
         email: mapped.email || null,
         source: filename,
         customData: Object.keys(extra).length > 0 ? JSON.stringify(extra) : null,
-      });
-
-    imported++;
+      },
+    });
   }
+
+  // Duplicate check for the whole file at once (it used to be one query per
+  // row). The rule is unchanged: the incoming address, lower cased with white
+  // space collapsed, is compared with lower(replace(property_address, '  ', ' '))
+  // of the caller's stored leads, and a row that repeats an earlier inserted
+  // row of the same file is skipped too. Postgres computes the stored form of
+  // both the existing and the incoming addresses, so the comparison is the same
+  // one the database made before.
+  const taken = new Set<string>();
+  if (candidates.length > 0) {
+    const existing = await db
+      .selectDistinct({ key: sql<string>`lower(replace(${leads.propertyAddress}, '  ', ' '))` })
+      .from(leads)
+      .where(eq(leads.userId, userId));
+    for (const e of existing) taken.add(e.key);
+  }
+  const storedForms =
+    candidates.length > 0
+      ? await db.execute<{ key: string }>(sql`
+          SELECT lower(replace(a, '  ', ' ')) AS key
+          FROM jsonb_array_elements_text(${JSON.stringify(candidates.map((c) => c.values.propertyAddress))}::jsonb)
+            WITH ORDINALITY AS t(a, i)
+          ORDER BY i`)
+      : [];
+
+  const toInsert: NewLead[] = [];
+  candidates.forEach((c, i) => {
+    if (taken.has(c.normalized)) {
+      skipped++;
+      return;
+    }
+    toInsert.push(c.values);
+    taken.add(storedForms[i].key);
+  });
+
+  for (let i = 0; i < toInsert.length; i += IMPORT_BATCH_SIZE) {
+    await db.insert(leads).values(toInsert.slice(i, i + IMPORT_BATCH_SIZE));
+  }
+  const imported = toInsert.length;
 
   // Record import
   await db.insert(csvImports)

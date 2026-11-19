@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { importLeads } from "@/lib/actions/leads";
+import { importLeads, MAX_IMPORT_ROWS } from "@/lib/actions/leads";
 import { withAuth, readJson } from "@/lib/api-handler";
 import { parseWith } from "@/lib/validation";
 
@@ -10,7 +10,7 @@ import { parseWith } from "@/lib/validation";
 const cellSchema = z.union([z.string(), z.null(), z.array(z.string().nullable()).max(1000)]);
 
 const importSchema = z.object({
-  data: z.array(z.record(z.string(), cellSchema)).min(1),
+  data: z.array(z.record(z.string(), cellSchema)).min(1).max(MAX_IMPORT_ROWS),
   mapping: z.record(z.string(), z.string()),
   filename: z.string().min(1).max(255),
 });
