@@ -68,13 +68,31 @@ Findings from the audit of 2026-11-19 and their fixes:
 - Tables created later by Supabase's own admin role still get the default public grants, so any new table needs row level security turned on (the Supabase security advisor flags it).
 - Public sign-up is closed in the app: the login page has no "create account" option. The real switch is in the Supabase dashboard: Authentication settings, turn off "Allow new users to sign up". The owner then creates each customer's account there by hand.
 
+Second review (round 2) and its fixes:
+
+- Lead and buyer text on the map could run as script for whoever opened it (including an admin impersonating the user). Every popup and label is now built with an escaping template helper.
+- The Google Calendar connect state was single use only if the browser dropped its cookie. The server now stores one pending marker per user and uses it up on the first callback; setting names starting with `_` are reserved for the server.
+- The test database guard could be pointed at a non-test database with a query string in the URL. It now refuses query strings and fragments and asks the server which database and host it is on before changing anything.
+- One settings save could store any number of keys. It now takes at most 50 keys per request with strict names (letters, digits, `_` `.` `-`, up to 100 characters).
+- One buyer zones request could run for most of an hour. Areas are de-duplicated and at most 25 are geocoded per request; the answer says how many were skipped.
+- A request body without a declared length was read in full before the size check. Bodies are now read as a stream and refused with 413 as soon as they pass 10 MB.
+- Failed requests wrote request values (API keys, personal data) into the server log. The log now keeps a safe summary: method and path, error class, Postgres code, constraint, table and stack frames.
+- `db-make-admin` could promote the wrong profile when two profiles share an email. It now changes nothing in that case, lists the ids and accepts `--id <user id>`.
+- A large CSV import could stall the app for minutes. The duplicate check runs once per file, inserts go in batches of 500, and one import takes at most 25,000 rows.
+
 Not covered yet (deliberately left for later):
 
 - Third-party keys in settings (Twilio, skip tracing) and Google tokens are stored in plain text and shown in full to their owner.
-- No rate limits, and no size limits on bulk actions, imports or settings beyond the page size cap.
+- No rate limits: single requests are size limited (imports, settings, buyer zones, request bodies), but nothing limits how many requests a user sends.
 - Geocoding has no per-user limit, which can break the geocoder's usage policy.
 - No `Origin` check on requests that change data (sign-in cookies are SameSite=Lax).
 - The old SQLite test files in `data/` and `supabase/.temp/` are still in the repository.
 - No audit log of who impersonated whom.
 - Supabase Auth leaked password protection is off (a dashboard setting).
+- The lockdown file does not revoke EXECUTE on functions: the public roles could run any database function added later (there are none today).
+- Two runs of the sequence processor at the same moment can add the same note twice.
+- A NUL character in a text field gets a 500 instead of a 400.
+- One badly stored buyer row breaks the buyer zones list for that user.
+- Calendar dates that are well formed but impossible (for example February 30) are not refused.
+- No Content Security Policy.
 - Lint reports `react-hooks/set-state-in-effect` as a warning, not an error, for 12 screens that load data when they open.
