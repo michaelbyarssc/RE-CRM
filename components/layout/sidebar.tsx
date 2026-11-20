@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import {
   Users,
   Upload,
@@ -50,11 +51,13 @@ function SidebarContent({
   pathname,
   userEmail,
   handleSignOut,
+  signingOut,
   onNavClick,
 }: {
   pathname: string;
   userEmail: string | null;
   handleSignOut: () => void;
+  signingOut: boolean;
   onNavClick?: () => void;
 }) {
   return (
@@ -100,9 +103,10 @@ function SidebarContent({
             size="sm"
             className="w-full justify-start gap-3 text-muted-foreground hover:text-foreground"
             onClick={handleSignOut}
+            disabled={signingOut}
           >
             <LogOut className="h-4 w-4" />
-            Sign Out
+            {signingOut ? "Signing out..." : "Sign Out"}
           </Button>
         </div>
       )}
@@ -112,9 +116,9 @@ function SidebarContent({
 
 export function Sidebar() {
   const pathname = usePathname();
-  const router = useRouter();
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
 
   // The Supabase client is created in the browser only (not while the page is
   // prerendered at build time, when its settings may not be available).
@@ -130,9 +134,39 @@ export function Sidebar() {
   }, [pathname]);
 
   const handleSignOut = async () => {
-    await createSupabaseBrowserClient().auth.signOut();
-    router.push("/login");
-    router.refresh();
+    if (signingOut) return;
+    setSigningOut(true);
+    let failed = false;
+    let noConnection = false;
+    try {
+      // signOut() does not throw when the sign-in service refuses or cannot be
+      // reached: it returns the error and keeps the user signed in.
+      const { error } = await createSupabaseBrowserClient().auth.signOut();
+      if (error) {
+        failed = true;
+        noConnection = error.status === 0;
+      }
+    } catch {
+      failed = true;
+      noConnection = true;
+    }
+    if (failed) {
+      setSigningOut(false);
+      toast.error(
+        noConnection
+          ? "Could not sign out. Check your internet connection and try again."
+          : "Could not sign out. Something went wrong on our side. Try again in a minute."
+      );
+      return;
+    }
+    // A full page load, not router.push("/login") plus router.refresh(). The
+    // refresh made the router fetch again every sidebar link still on screen
+    // (prefetching). The proxy sends those signed-out requests to /login,
+    // which has no data for them, so the browser logged a 404 for each one.
+    // A full page load also drops everything the signed-out user had loaded
+    // in this tab, so the Back button asks the server again and lands on /login.
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- a full page load is the point here, see above
+    window.location.assign("/login");
   };
 
   return (
@@ -154,6 +188,7 @@ export function Sidebar() {
               pathname={pathname}
               userEmail={userEmail}
               handleSignOut={handleSignOut}
+              signingOut={signingOut}
               onNavClick={() => setSheetOpen(false)}
             />
           </SheetContent>
@@ -167,6 +202,7 @@ export function Sidebar() {
           pathname={pathname}
           userEmail={userEmail}
           handleSignOut={handleSignOut}
+          signingOut={signingOut}
         />
       </aside>
     </>
