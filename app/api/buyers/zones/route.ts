@@ -6,15 +6,10 @@ import { eq, and } from "drizzle-orm";
 import { geocodeAddress } from "@/lib/geocode";
 import { withAuth, readJson } from "@/lib/api-handler";
 import { idSchema, parseWith } from "@/lib/validation";
+import { parseBuyCriteriaObject, readBuyCriteria } from "@/lib/buy-criteria.mjs";
+import type { GeocodedArea } from "@/lib/buy-criteria.mjs";
 
 const MAX_AREAS_PER_REQUEST = 25;
-
-interface GeocodedArea {
-  name: string;
-  lat: number;
-  lng: number;
-  type: "zip" | "city" | "county" | "other";
-}
 
 /**
  * GET - Return all buyers with their geocoded zone data for the map
@@ -25,8 +20,9 @@ export const GET = withAuth(async ({ user: authUser }) => {
 
   const zones = allBuyers
     .map((buyer) => {
-      const criteria = buyer.buyCriteria ? JSON.parse(buyer.buyCriteria) : null;
-      if (!criteria?.geocodedAreas || criteria.geocodedAreas.length === 0) return null;
+      // A buyer whose saved criteria cannot be read has no zones; the others still show.
+      const criteria = readBuyCriteria(buyer.buyCriteria);
+      if (!criteria || criteria.geocodedAreas.length === 0) return null;
 
       return {
         id: buyer.id,
@@ -36,7 +32,7 @@ export const GET = withAuth(async ({ user: authUser }) => {
         email: buyer.email,
         priceRange: criteria.priceRange || null,
         areas: criteria.areas || "",
-        geocodedAreas: criteria.geocodedAreas as GeocodedArea[],
+        geocodedAreas: criteria.geocodedAreas,
       };
     })
     .filter(Boolean);
@@ -58,8 +54,8 @@ export const POST = withAuth(async ({ req, user: authUser }) => {
     return NextResponse.json({ error: "Buyer not found" }, { status: 404 });
   }
 
-  const criteria = buyer.buyCriteria ? JSON.parse(buyer.buyCriteria) : {};
-  const areasStr: string = criteria.areas || "";
+  // Unreadable criteria count as no areas, and the saved text is left as it is.
+  const areasStr = readBuyCriteria(buyer.buyCriteria)?.areas ?? "";
 
   if (!areasStr.trim()) {
     return NextResponse.json({ geocoded: 0 });
@@ -96,7 +92,8 @@ export const POST = withAuth(async ({ req, user: authUser }) => {
     }
 
     const result = await geocodeAddress(query);
-    if (result) {
+    // Save an area only when the geocoder returned real numbers.
+    if (result && Number.isFinite(result.lat) && Number.isFinite(result.lon)) {
       geocodedAreas.push({
         name: area,
         lat: result.lat,
@@ -108,8 +105,9 @@ export const POST = withAuth(async ({ req, user: authUser }) => {
     await new Promise((resolve) => setTimeout(resolve, 1100));
   }
 
+  // Every other saved field is kept exactly as stored.
   const updatedCriteria = {
-    ...criteria,
+    ...parseBuyCriteriaObject(buyer.buyCriteria),
     geocodedAreas,
   };
 
