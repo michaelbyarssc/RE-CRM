@@ -10,11 +10,13 @@
 //
 // The test finds every page.tsx under app/, requests its HTML (dashboard pages
 // signed in, the others signed out) and fails if a <button> starts while
-// another <button> is still open.
+// another <button> is still open. The HTML check cannot see parts drawn after
+// data loads (table rows), so a source scan also fails when a ...Trigger or
+// ...Close tag without a `render` prop has a <button> or <Button> as its first child.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readdirSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { api } from "./helpers/http.mjs";
@@ -96,3 +98,55 @@ for (const page of all) {
     assert.deepEqual(nested, [], `${page.path}: button inside a button:\n${nested.join("\n")}`);
   });
 }
+
+// ---- Source scan: triggers that are drawn only after data loads ----
+
+/** "<Name> line N" for every ...Trigger / ...Close tag without `render` whose first child is a button. */
+export function triggersWrappingButtons(source) {
+  const found = [];
+  for (const m of source.matchAll(/<([A-Z][\w.]*(?:Trigger|Close))\b/g)) {
+    // Find the end of the opening tag, skipping {...} expressions and quoted strings.
+    let i = m.index + m[0].length;
+    let depth = 0;
+    let quote = null;
+    for (; i < source.length; i++) {
+      const c = source[i];
+      if (quote) { if (c === quote) quote = null; }
+      else if (c === '"' || c === "'" || c === "`") quote = c;
+      else if (c === "{") depth++;
+      else if (c === "}") depth--;
+      else if (c === ">" && depth === 0) break;
+    }
+    const attrs = source.slice(m.index + m[0].length, i);
+    if (attrs.trimEnd().endsWith("/") || /\brender\s*=/.test(attrs)) continue;
+    const child = source.slice(i + 1).replace(/^(\s|\{\/\*[\s\S]*?\*\/\})*/, "");
+    if (/^<[Bb]utton\b/.test(child)) found.push(`${m[1]} line ${source.slice(0, m.index).split("\n").length}`);
+  }
+  return found;
+}
+
+function sourceFiles(dir, out = []) {
+  for (const name of readdirSync(dir)) {
+    const full = path.join(dir, name);
+    if (statSync(full).isDirectory()) sourceFiles(full, out);
+    else if (/\.(tsx|jsx)$/.test(name)) out.push(full);
+  }
+  return out;
+}
+
+test("T26 the source scan finds a trigger wrapped around a button and nothing else", () => {
+  assert.deepEqual(triggersWrappingButtons(`<DialogTrigger>\n  <Button>Add</Button>\n</DialogTrigger>`), ["DialogTrigger line 1"]);
+  assert.equal(triggersWrappingButtons(`<DropdownMenuTrigger className={cn("a", x > 1 && "b")}><button /></DropdownMenuTrigger>`).length, 1);
+  assert.equal(triggersWrappingButtons(`<DialogTrigger render={<Button />}>Add</DialogTrigger>`).length, 0);
+  assert.equal(triggersWrappingButtons(`<DropdownMenuTrigger><span className="x">+</span></DropdownMenuTrigger>`).length, 0);
+  assert.equal(triggersWrappingButtons(`<SheetTrigger render={<Button variant="ghost" />}><Menu /></SheetTrigger>`).length, 0);
+});
+
+test("T26 no trigger or close part in app/ or components/ wraps a <button> or <Button>", () => {
+  const found = ["app", "components"].flatMap((d) =>
+    sourceFiles(path.join(root, d)).flatMap((f) =>
+      triggersWrappingButtons(readFileSync(f, "utf8")).map((hit) => `${path.relative(root, f)}: ${hit}`)
+    )
+  );
+  assert.deepEqual(found, [], `use the render prop instead of a button child:\n${found.join("\n")}`);
+});
