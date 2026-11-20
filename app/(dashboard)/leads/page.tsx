@@ -384,10 +384,8 @@ export default function LeadsPage() {
               {selectedIds.length} selected
             </span>
             <DropdownMenu>
-              <DropdownMenuTrigger>
-                <Button variant="outline" size="sm">
-                  Bulk Actions
-                </Button>
+              <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>
+                Bulk Actions
               </DropdownMenuTrigger>
               <DropdownMenuContent>
                 <DropdownMenuSub>

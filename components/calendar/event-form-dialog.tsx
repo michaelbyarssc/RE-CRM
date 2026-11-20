@@ -71,7 +71,9 @@ interface EventFormDialogProps {
     leadId: number | null;
     buyerId: number | null;
   } | null;
-  trigger?: React.ReactNode;
+  // One element, usually a <Button>. It becomes the trigger button itself
+  // (not wrapped in another <button>, which browsers do not allow).
+  trigger?: React.ReactElement;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }
@@ -250,7 +252,7 @@ export function EventFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) resetForm(); }}>
-      {trigger && <DialogTrigger>{trigger}</DialogTrigger>}
+      {trigger && <DialogTrigger render={trigger} />}
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{editEvent ? "Edit Event" : "New Event"}</DialogTitle>
