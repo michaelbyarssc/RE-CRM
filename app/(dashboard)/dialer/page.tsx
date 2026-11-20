@@ -60,19 +60,25 @@ export default function DialerPage() {
   const [callNotes, setCallNotes] = useState("");
   const [savingLog, setSavingLog] = useState(false);
   const [statusFilter, setStatusFilter] = useState("new");
+  // True after a refused load, until a load succeeds. With no leads on the
+  // screen it shows a sentence instead of "No leads with phone numbers in this status."
+  const [loadFailed, setLoadFailed] = useState(false);
 
   // Loads the leads to call. On a refusal the leads already on the screen stay.
   const fetchLeads = useCallback(async () => {
     const res = await apiFetch(`/api/leads?status=${statusFilter}&pageSize=100`);
     if (!res.ok) {
+      setLoadFailed(true);
       toast.error(await apiErrorMessage(res, "Could not load your leads"));
       return;
     }
     const data = await res.json().catch(() => null);
     if (!data || !Array.isArray(data.leads)) {
+      setLoadFailed(true);
       toast.error("Could not load your leads. Something went wrong on our side. Try again in a minute.");
       return;
     }
+    setLoadFailed(false);
     // Only leads with phone numbers
     setLeads(data.leads.filter((l: Lead) => l.phone));
   }, [statusFilter]);
@@ -82,6 +88,7 @@ export default function DialerPage() {
   }, [fetchLeads]);
 
   const currentLead = leads[currentIndex];
+  const showLoadFailed = loadFailed && leads.length === 0;
 
   const handleCall = (lead: Lead) => {
     window.open(`tel:${lead.phone}`, "_self");
@@ -157,7 +164,15 @@ export default function DialerPage() {
         </div>
       </div>
 
-      {powerMode && currentLead ? (
+      {showLoadFailed ? (
+        <Card>
+          <CardContent className="py-8 text-center">
+            <p className="text-muted-foreground">
+              Your leads could not be loaded. Refresh the page to try again.
+            </p>
+          </CardContent>
+        </Card>
+      ) : powerMode && currentLead ? (
         <Card className="mb-6">
           <CardHeader>
             <div className="flex items-center justify-between">

@@ -26,20 +26,26 @@ export default function PipelinePage() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [draggedLead, setDraggedLead] = useState<Lead | null>(null);
   const [dragOverStatus, setDragOverStatus] = useState<string | null>(null);
+  // True after a refused load, until a load succeeds. With no cards on the
+  // screen it shows a sentence instead of empty columns that read as "no leads".
+  const [loadFailed, setLoadFailed] = useState(false);
 
   // Loads the leads. On a refusal the cards already on the screen stay.
   // `quiet` is for the reload after a refused move: its message is already shown.
   const fetchLeads = useCallback(async ({ quiet = false }: { quiet?: boolean } = {}) => {
     const res = await apiFetch("/api/leads?pageSize=500");
     if (!res.ok) {
+      setLoadFailed(true);
       if (!quiet) toast.error(await apiErrorMessage(res, "Could not load your leads"));
       return;
     }
     const data = await res.json().catch(() => null);
     if (!data || !Array.isArray(data.leads)) {
+      setLoadFailed(true);
       if (!quiet) toast.error("Could not load your leads. Something went wrong on our side. Try again in a minute.");
       return;
     }
+    setLoadFailed(false);
     setLeads(data.leads);
   }, []);
 
@@ -102,6 +108,7 @@ export default function PipelinePage() {
 
   const getLeadsByStatus = (status: string) =>
     leads.filter((l) => l.status === status);
+  const showLoadFailed = loadFailed && leads.length === 0;
 
   return (
     <div>
@@ -109,6 +116,12 @@ export default function PipelinePage() {
         <h1 className="text-2xl font-bold">Pipeline</h1>
         <AddLeadDialog onLeadCreated={fetchLeads} />
       </div>
+
+      {showLoadFailed && (
+        <p className="text-center py-8 text-muted-foreground">
+          Your leads could not be loaded. Refresh the page to try again.
+        </p>
+      )}
 
       {/* Mobile: vertical stacked columns (no horizontal scroll) */}
       <div className="md:hidden space-y-4">
@@ -162,7 +175,10 @@ export default function PipelinePage() {
       </div>
 
       {/* Desktop: horizontal kanban with drag-and-drop */}
-      <div className="hidden md:flex gap-4 overflow-x-auto pb-4" style={{ minHeight: "calc(100vh - 160px)" }}>
+      <div
+        className={showLoadFailed ? "hidden" : "hidden md:flex gap-4 overflow-x-auto pb-4"}
+        style={{ minHeight: "calc(100vh - 160px)" }}
+      >
         {LEAD_STATUSES.map((status) => {
           const statusLeads = getLeadsByStatus(status.value);
           const isOver = dragOverStatus === status.value;

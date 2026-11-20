@@ -123,9 +123,14 @@ export default function CalendarPage() {
     if (!confirm("Delete this event?")) return;
     const res = await apiFetch(`/api/calendar/${selectedEvent.id}`, { method: "DELETE" });
     if (!res.ok) {
-      // Keep the details panel open so the user can try again.
+      // Keep the details panel open so the user can try again (unless the event is gone).
       toast.error(await apiErrorMessage(res, "Could not delete the event"));
-      if (res.status === 404) handleRefresh();
+      if (res.status === 404) {
+        // The event is already gone, so close its details too.
+        setDetailOpen(false);
+        setSelectedEvent(null);
+        handleRefresh();
+      }
       return;
     }
     toast.success("Event deleted");
@@ -146,7 +151,12 @@ export default function CalendarPage() {
       toast.error(
         await apiErrorMessage(res, "Could not change the event status", "Refresh the page and try again.")
       );
-      if (res.status === 404) handleRefresh();
+      if (res.status === 404) {
+        // The event is already gone, so close its details too.
+        setDetailOpen(false);
+        setSelectedEvent(null);
+        handleRefresh();
+      }
       return;
     }
     toast.success(`Marked as ${status}`);

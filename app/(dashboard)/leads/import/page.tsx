@@ -28,6 +28,10 @@ import { apiFetch, apiErrorMessage } from "@/lib/api-fetch";
 
 type ImportState = "upload" | "mapping" | "importing" | "done";
 
+// The same limits as the server (app/api/leads/import/route.ts).
+const MAX_IMPORT_ROWS = 25_000;
+const MAX_FILENAME_LENGTH = 255;
+
 export default function ImportPage() {
   const router = useRouter();
   const [state, setState] = useState<ImportState>("upload");
@@ -96,13 +100,30 @@ export default function ImportPage() {
         }),
       });
       if (!res.ok) {
-        toast.error(
-          await apiErrorMessage(
-            res,
-            "Could not import the leads",
-            "A file can have at most 25,000 rows. Split a larger file and import each part."
-          )
-        );
+        // Name only a cause this screen can see in the file. The server limits
+        // the row count (25,000), the file name (255 characters) and the size.
+        const tooManyRows =
+          "A file can have at most 25,000 rows. Split a larger file and import each part.";
+        const hasTooManyRows = allData.length > MAX_IMPORT_ROWS;
+        if (res.status === 413) {
+          toast.error(
+            hasTooManyRows
+              ? `Could not import the leads. ${tooManyRows}`
+              : "Could not import the leads. The file is too large. Split it into smaller files and import each part."
+          );
+        } else {
+          toast.error(
+            await apiErrorMessage(
+              res,
+              "Could not import the leads",
+              hasTooManyRows
+                ? tooManyRows
+                : (file?.name.length ?? 0) > MAX_FILENAME_LENGTH
+                  ? "The file name is too long (255 characters at most). Rename the file and try again."
+                  : "Check the file and try again."
+            )
+          );
+        }
         setState("mapping");
         return;
       }
@@ -247,7 +268,10 @@ export default function ImportPage() {
           <div className="flex gap-3">
             <Button
               onClick={handleImport}
-              disabled={!Object.values(mapping).includes("propertyAddress")}
+              disabled={
+                allData.length === 0 ||
+                !Object.values(mapping).includes("propertyAddress")
+              }
             >
               Import {allData.length} Leads
             </Button>
@@ -263,6 +287,12 @@ export default function ImportPage() {
             >
               Cancel
             </Button>
+            {allData.length === 0 && (
+              <p className="text-sm text-destructive flex items-center gap-1">
+                <AlertCircle className="h-4 w-4" />
+                This file has no rows to import. Choose a file with at least one lead below the header row.
+              </p>
+            )}
             {!Object.values(mapping).includes("propertyAddress") && (
               <p className="text-sm text-destructive flex items-center gap-1">
                 <AlertCircle className="h-4 w-4" />

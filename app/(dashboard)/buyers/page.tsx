@@ -50,9 +50,20 @@ export default function BuyersPage() {
     notes: "",
   });
 
-  const fetchBuyers = useCallback(async () => {
-    const res = await fetch("/api/buyers");
-    if (res.ok) setBuyers(await res.json());
+  // Loads the buyers. On a refusal the buyers already on the screen stay.
+  // `quiet` is for the reload after a refused change: its message is already shown.
+  const fetchBuyers = useCallback(async ({ quiet = false }: { quiet?: boolean } = {}) => {
+    const res = await apiFetch("/api/buyers");
+    if (!res.ok) {
+      if (!quiet) toast.error(await apiErrorMessage(res, "Could not load your buyers"));
+      return;
+    }
+    const data = await res.json().catch(() => null);
+    if (!Array.isArray(data)) {
+      if (!quiet) toast.error("Could not load your buyers. Something went wrong on our side. Try again in a minute.");
+      return;
+    }
+    setBuyers(data);
   }, []);
 
   useEffect(() => {
@@ -81,7 +92,7 @@ export default function BuyersPage() {
           await apiErrorMessage(res, "Could not put this buyer's areas on the map", "Refresh the page and try again.")
         );
       }
-      fetchBuyers();
+      fetchBuyers({ quiet: true });
       return;
     }
 
@@ -113,6 +124,8 @@ export default function BuyersPage() {
             "Mapping this buyer again looks up the same 25. To map the others, add them as a separate buyer.",
           duration: Infinity,
           closeButton: true,
+          // One per buyer: mapping the same buyer again replaces it instead of stacking a second one.
+          id: `buyer-areas-left-out-${buyerId}`,
         }
       );
     }
@@ -141,7 +154,7 @@ export default function BuyersPage() {
           await apiErrorMessage(
             res,
             "Could not add the buyer",
-            "Check that no field is too long: name, company and price range up to 200 characters, phone up to 50, areas and notes up to 5,000."
+            "Check that no field is too long: name, company and price range up to 200 characters, phone up to 50, email up to 320, areas and notes up to 5,000."
           )
         );
         return;
@@ -173,7 +186,7 @@ export default function BuyersPage() {
     const res = await apiFetch(`/api/buyers?id=${id}`, { method: "DELETE" });
     if (!res.ok) {
       toast.error(await apiErrorMessage(res, "Could not remove the buyer", "Refresh the page and try again."));
-      fetchBuyers();
+      fetchBuyers({ quiet: true });
       return;
     }
     toast.success("Buyer removed");

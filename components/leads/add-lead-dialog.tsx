@@ -74,7 +74,9 @@ export function AddLeadDialog({ onLeadCreated }: AddLeadDialogProps) {
           await apiErrorMessage(
             res,
             "Could not create the lead",
-            "Check that no field is too long: phone at most 50 characters, zip code at most 20."
+            form.propertyAddress.trim()
+              ? "Check that no field is too long."
+              : "The property address is required."
           )
         );
         return;

@@ -97,6 +97,9 @@ export default function LeadsPage() {
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [allTags, setAllTags] = useState<LeadTag[]>([]);
   const [loading, setLoading] = useState(true);
+  // True after a refused load, until a load succeeds. With no leads on the
+  // screen it shows a sentence instead of "No leads found", which would not be true.
+  const [loadFailed, setLoadFailed] = useState(false);
   const pageSize = 50;
 
   // Loads one page of leads. On a refusal the leads already on the screen stay.
@@ -113,15 +116,27 @@ export default function LeadsPage() {
 
         const res = await apiFetch(`/api/leads?${params}`);
         if (!res.ok) {
+          setLoadFailed(true);
           if (!quiet) toast.error(await apiErrorMessage(res, "Could not load your leads"));
           return;
         }
         const data = await res.json().catch(() => null);
         if (!data || !Array.isArray(data.leads)) {
+          setLoadFailed(true);
           if (!quiet) toast.error("Could not load your leads. Something went wrong on our side. Try again in a minute.");
           return;
         }
+        setLoadFailed(false);
         setLeads(data.leads);
+        // The selection is kept by lead id. Drop the ids of leads that are no
+        // longer on the screen, so a bulk action never reaches a lead the user cannot see.
+        const shownIds = new Set((data.leads as Lead[]).map((l) => String(l.id)));
+        setRowSelection((prev) => {
+          const kept = Object.fromEntries(
+            Object.entries(prev).filter(([key, on]) => on && shownIds.has(key))
+          );
+          return Object.keys(kept).length === Object.keys(prev).length ? prev : kept;
+        });
         setTotal(typeof data.total === "number" ? data.total : data.leads.length);
       } finally {
         setLoading(false);
@@ -156,10 +171,10 @@ export default function LeadsPage() {
     return () => clearTimeout(timer);
   }, [searchInput]);
 
-  const selectedIds = Object.keys(rowSelection)
-    .filter((key) => rowSelection[key])
-    .map((key) => leads[Number(key)]?.id)
-    .filter(Boolean);
+  // The selected leads that are on the screen, by id (the table's row id is the lead id).
+  const selectedIds = leads
+    .filter((lead) => rowSelection[String(lead.id)])
+    .map((lead) => lead.id);
 
   const handleBulkAction = async (
     action: "updateStatus" | "addTag" | "delete",
@@ -381,16 +396,20 @@ export default function LeadsPage() {
     data: leads,
     columns,
     getCoreRowModel: getCoreRowModel(),
+    // Keep the selection by lead id, not by row position: after a reload the
+    // rows can come back in another order.
+    getRowId: (row) => String(row.id),
     onRowSelectionChange: setRowSelection,
     state: { rowSelection },
   });
 
   const totalPages = Math.ceil(total / pageSize);
+  const showLoadFailed = loadFailed && leads.length === 0;
 
   return (
     <div>
       <div className="flex flex-col gap-3 mb-6 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-2xl font-bold">Leads ({total})</h1>
+        <h1 className="text-2xl font-bold">{showLoadFailed ? "Leads" : `Leads (${total})`}</h1>
         <div className="flex items-center gap-2">
           <AddLeadDialog onLeadCreated={fetchLeads} />
           <Button variant="outline" onClick={() => router.push("/leads/import")}>Import CSV</Button>
@@ -514,6 +533,10 @@ export default function LeadsPage() {
       <div className="md:hidden space-y-3">
         {loading ? (
           <div className="text-center py-8 text-muted-foreground">Loading...</div>
+        ) : showLoadFailed ? (
+          <div className="text-center py-8 text-muted-foreground">
+            Your leads could not be loaded. Refresh the page to try again.
+          </div>
         ) : leads.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">
             <p>No leads found</p>
@@ -525,9 +548,9 @@ export default function LeadsPage() {
             </p>
           </div>
         ) : (
-          leads.map((lead, idx) => {
+          leads.map((lead) => {
             const name = [lead.firstName, lead.lastName].filter(Boolean).join(" ") || "Unknown";
-            const isSelected = rowSelection[idx] === true;
+            const isSelected = rowSelection[String(lead.id)] === true;
             return (
               <div
                 key={lead.id}
@@ -538,7 +561,7 @@ export default function LeadsPage() {
                     <Checkbox
                       checked={isSelected}
                       onCheckedChange={(value) => {
-                        setRowSelection((prev) => ({ ...prev, [idx]: !!value }));
+                        setRowSelection((prev) => ({ ...prev, [String(lead.id)]: !!value }));
                       }}
                     />
                     <button
@@ -646,6 +669,12 @@ export default function LeadsPage() {
               <TableRow>
                 <TableCell colSpan={columns.length} className="text-center py-8">
                   Loading...
+                </TableCell>
+              </TableRow>
+            ) : showLoadFailed ? (
+              <TableRow>
+                <TableCell colSpan={columns.length} className="text-center py-8 text-muted-foreground">
+                  Your leads could not be loaded. Refresh the page to try again.
                 </TableCell>
               </TableRow>
             ) : leads.length === 0 ? (

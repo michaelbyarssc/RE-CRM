@@ -253,7 +253,15 @@ export function EventFormDialog({
   const eventTypeInfo = EVENT_TYPES.find((t) => t.value === form.eventType);
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) resetForm(); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        // While a save is running, stay open: if it is refused, the typed values must still be there.
+        if (!v && saving) return;
+        setOpen(v);
+        if (!v) resetForm();
+      }}
+    >
       {trigger && <DialogTrigger render={trigger} />}
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>

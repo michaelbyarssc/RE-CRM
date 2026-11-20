@@ -187,7 +187,7 @@ export default function SettingsPage() {
       if (!res.ok) {
         // Nothing was saved. The typed values stay in the fields; the server's
         // own text (for example a missing encryption setting) is shown when it sends one.
-        toast.error(await apiErrorMessage(res, `Could not save ${section.title}`, "Refresh the page and try again."));
+        toast.error(await apiErrorMessage(res, `Could not save ${section.title}`));
         return;
       }
       toast.success(`${section.title} saved successfully`);

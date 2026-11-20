@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Dialog,
   DialogContent,
@@ -40,6 +40,8 @@ export function QuickNoteDialog({
   const [notes, setNotes] = useState<Note[]>([]);
   const [newNote, setNewNote] = useState("");
   const [loading, setLoading] = useState(false);
+  // Set at once on a save, so a second Ctrl+Enter or click before the screen updates is ignored.
+  const savingRef = useRef(false);
 
   // Loads the notes. On a refusal the notes already on the screen stay.
   // `quiet` is for the reload after a refused delete: its message is already shown.
@@ -61,7 +63,8 @@ export function QuickNoteDialog({
 
   const handleAddNote = async () => {
     const content = newNote.trim();
-    if (!content) return;
+    if (!content || savingRef.current) return;
+    savingRef.current = true;
     setLoading(true);
     try {
       const res = await apiFetch("/api/notes", {
@@ -95,6 +98,7 @@ export function QuickNoteDialog({
         );
       }
     } finally {
+      savingRef.current = false;
       setLoading(false);
     }
   };
@@ -135,6 +139,7 @@ export function QuickNoteDialog({
               className="min-h-[60px] max-h-60 overflow-y-auto"
               onKeyDown={(e) => {
                 if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                  if (loading) return;
                   handleAddNote();
                 }
               }}

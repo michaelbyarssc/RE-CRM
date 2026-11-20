@@ -49,21 +49,34 @@ export default function MapPage() {
   const [buyerZones, setBuyerZones] = useState<BuyerZone[]>([]);
   const [showBuyerZones, setShowBuyerZones] = useState(false);
 
-  const fetchMapData = useCallback(async () => {
-    const res = await fetch("/api/leads/geocode");
-    if (!res.ok) return;
-    const data = await res.json();
+  // Loads the leads for the map. On a refusal what is on the map stays.
+  // `quiet` is for the reload after a refused change: its message is already shown.
+  const fetchMapData = useCallback(async ({ quiet = false }: { quiet?: boolean } = {}) => {
+    const res = await apiFetch("/api/leads/geocode");
+    const data = res.ok ? await res.json().catch(() => null) : null;
+    if (!data || !Array.isArray(data.leads)) {
+      if (!quiet) {
+        // One id, so a second load at the same time does not stack a second toast.
+        toast.error(
+          res.ok
+            ? "Could not load the map. Something went wrong on our side. Try again in a minute."
+            : await apiErrorMessage(res, "Could not load the map"),
+          { id: "map-load" }
+        );
+      }
+      return;
+    }
     setLeads(data.leads);
     setTotal(data.total);
     setUngeocoded(data.ungeocoded);
   }, []);
 
+  // Quiet on a refusal: the map load next to it already tells the user. The zones on the map stay.
   const fetchBuyerZones = useCallback(async () => {
-    const res = await fetch("/api/buyers/zones");
-    if (res.ok) {
-      const data = await res.json();
-      setBuyerZones(data);
-    }
+    const res = await apiFetch("/api/buyers/zones");
+    if (!res.ok) return;
+    const data = await res.json().catch(() => null);
+    if (Array.isArray(data)) setBuyerZones(data);
   }, []);
 
   useEffect(() => {
@@ -77,11 +90,16 @@ export default function MapPage() {
       const res = await apiFetch("/api/leads/geocode", { method: "POST" });
       if (!res.ok) {
         toast.error(await apiErrorMessage(res, "Could not put your leads on the map", "Refresh the page and try again."));
-        fetchMapData();
+        fetchMapData({ quiet: true });
         return;
       }
-      const data = await res.json();
-      toast.success(`Geocoded ${data.geocoded} leads. ${data.remaining} remaining.`);
+      // The work is done even when the answer cannot be read, so it is still a success.
+      const data = await res.json().catch(() => null);
+      toast.success(
+        data && typeof data.geocoded === "number"
+          ? `Geocoded ${data.geocoded} leads. ${data.remaining} remaining.`
+          : "Finished putting your leads on the map."
+      );
       fetchMapData();
     } finally {
       setGeocoding(false);
