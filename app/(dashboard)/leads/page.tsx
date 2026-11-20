@@ -646,17 +646,25 @@ export default function LeadsPage() {
                   key={lead.id}
                   className={`min-w-0 border rounded-lg p-3 space-y-2 ${isSelected ? "bg-primary/5 border-primary" : ""}`}
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <Checkbox
-                        checked={isSelected}
-                        onCheckedChange={(value) => {
-                          setRowSelection((prev) => ({ ...prev, [String(lead.id)]: !!value }));
-                        }}
-                      />
+                  {/* A long name wraps onto more lines, so this row is aligned at
+                      the top: the checkbox and the note button stay level with
+                      the first line of the name. The note button is 28 px high
+                      and a line of the name is 24 px, so the name gets 2 px
+                      above and below, and the checkbox is centered in a 28 px
+                      high box. A one-line row looks the same as before. */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-start gap-2 min-w-0">
+                      <span className="flex h-7 shrink-0 items-center">
+                        <Checkbox
+                          checked={isSelected}
+                          onCheckedChange={(value) => {
+                            setRowSelection((prev) => ({ ...prev, [String(lead.id)]: !!value }));
+                          }}
+                        />
+                      </span>
                       <button
                         onClick={() => router.push(`/leads/${lead.id}`)}
-                        className="font-medium hover:underline text-left truncate"
+                        className="font-medium hover:underline text-left min-w-0 py-0.5 [overflow-wrap:anywhere]"
                       >
                         {name}
                       </button>
