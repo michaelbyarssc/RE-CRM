@@ -7,13 +7,36 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
-import { Settings, Eye, EyeOff, Save, Search, Phone, CalendarDays, Check, X, RefreshCw, Loader2, Unlink } from "lucide-react";
+import { Settings, Eye, EyeOff, Save, Search, Phone, CalendarDays, Check, RefreshCw, Loader2, Unlink, Trash2, TriangleAlert } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 interface FieldConfig {
   key: string;
   label: string;
   placeholder: string;
+  // A public field shows its saved value. Every other field is a secret: the
+  // server only says whether it is saved and its last 4 characters.
+  isPublic?: boolean;
+}
+
+interface SecretStatus {
+  set: boolean;
+  last4: string | null;
+  unreadable?: boolean;
+}
+
+const REPLACE_PLACEHOLDER = "Enter a new value to replace it";
+
+// Use the server's own message when it sends one (for example when its
+// encryption setting is missing), otherwise the generic text.
+async function errorMessage(res: Response, fallback: string): Promise<string> {
+  try {
+    const data = await res.json();
+    if (data && typeof data.error === "string" && data.error.trim()) return data.error;
+  } catch {
+    // Not JSON
+  }
+  return fallback;
 }
 
 interface SectionConfig {
@@ -44,7 +67,7 @@ const sections: SectionConfig[] = [
     fields: [
       { key: "twilio_account_sid", label: "Account SID", placeholder: "Enter your Twilio Account SID" },
       { key: "twilio_auth_token", label: "Auth Token", placeholder: "Enter your Twilio Auth Token" },
-      { key: "twilio_phone_number", label: "Phone Number", placeholder: "+1234567890" },
+      { key: "twilio_phone_number", label: "Phone Number", placeholder: "+1234567890", isPublic: true },
     ],
   },
 ];
@@ -57,7 +80,12 @@ interface GoogleCalStatus {
 }
 
 export default function SettingsPage() {
-  const [values, setValues] = useState<Record<string, string>>({});
+  // What the server has: public values, and only the status of each secret.
+  const [publicValues, setPublicValues] = useState<Record<string, string>>({});
+  const [secrets, setSecrets] = useState<Record<string, SecretStatus>>({});
+  // Only what the user typed. A key is here only if the user changed that field.
+  const [edits, setEdits] = useState<Record<string, string>>({});
+  const [removing, setRemoving] = useState<Record<string, boolean>>({});
   const [visibility, setVisibility] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState<Record<string, boolean>>({});
   const [loaded, setLoaded] = useState(false);
@@ -70,7 +98,8 @@ export default function SettingsPage() {
       const res = await fetch("/api/settings");
       if (res.ok) {
         const data = await res.json();
-        setValues(data);
+        setPublicValues(data && typeof data.values === "object" && data.values ? data.values : {});
+        setSecrets(data && typeof data.secrets === "object" && data.secrets ? data.secrets : {});
       }
     } catch {
       toast.error("Failed to load settings");
@@ -105,8 +134,13 @@ export default function SettingsPage() {
       if (params.get("google_error") === "invalid_state") {
         toast.error("Google Calendar was not connected: the sign-in link was old or not started here. Please click Connect again.");
         window.history.replaceState({}, "", "/settings");
+      } else if (params.get("google_error") === "encryption_not_configured") {
+        toast.error("Google Calendar was not connected: the site is missing a security setting. Please tell the site owner.");
+        window.history.replaceState({}, "", "/settings");
       } else if (params.get("google_error")) {
-        toast.error(`Google Calendar error: ${params.get("google_error")}`);
+        // The address can be crafted: show only a short code, never free text.
+        const code = params.get("google_error") ?? "";
+        toast.error(/^[a-z_]{1,64}$/.test(code) ? `Google Calendar error: ${code}` : "Google Calendar error");
         window.history.replaceState({}, "", "/settings");
       }
     }, 0);
@@ -118,16 +152,44 @@ export default function SettingsPage() {
   };
 
   const handleChange = (key: string, value: string) => {
-    setValues((prev) => ({ ...prev, [key]: value }));
+    setEdits((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const clearEdits = (keys: string[]) => {
+    setEdits((prev) => {
+      const next = { ...prev };
+      for (const key of keys) delete next[key];
+      return next;
+    });
   };
 
   const handleSave = async (section: SectionConfig) => {
+    // Send only the fields the user typed into. For a secret, an empty value
+    // would mean "keep what is saved", so there is no point in sending it.
+    const payload: Record<string, string> = {};
+    for (const field of section.fields) {
+      if (!(field.key in edits)) continue;
+      const value = edits[field.key];
+      if (!field.isPublic && !value.trim()) continue;
+      payload[field.key] = value;
+    }
+    if (Object.keys(payload).length === 0) {
+      toast.info("Nothing to save. Type a new value first.");
+      return;
+    }
+    // The server skips a value over 10,000 characters (a secret measured after
+    // trimming), so refuse it here: never say "saved" for a skipped value.
+    for (const field of section.fields) {
+      if (!(field.key in payload)) continue;
+      const length = field.isPublic ? payload[field.key].length : payload[field.key].trim().length;
+      if (length > 10_000) {
+        toast.error(`${field.label} is too long (10,000 characters at most). Nothing was saved.`);
+        return;
+      }
+    }
+
     setSaving((prev) => ({ ...prev, [section.id]: true }));
     try {
-      const payload: Record<string, string> = {};
-      for (const field of section.fields) {
-        payload[field.key] = values[field.key] || "";
-      }
       const res = await fetch("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -135,13 +197,35 @@ export default function SettingsPage() {
       });
       if (res.ok) {
         toast.success(`${section.title} saved successfully`);
+        // Forget what was typed and show the saved status from the server.
+        clearEdits(section.fields.map((f) => f.key));
+        await fetchSettings();
       } else {
-        toast.error("Failed to save settings");
+        toast.error(await errorMessage(res, "Failed to save settings"));
       }
     } catch {
       toast.error("Failed to save settings");
     } finally {
       setSaving((prev) => ({ ...prev, [section.id]: false }));
+    }
+  };
+
+  const handleRemove = async (field: FieldConfig) => {
+    if (!confirm(`Remove the saved ${field.label}? The CRM will stop using it until you enter it again.`)) return;
+    setRemoving((prev) => ({ ...prev, [field.key]: true }));
+    try {
+      const res = await fetch(`/api/settings?key=${encodeURIComponent(field.key)}`, { method: "DELETE" });
+      if (res.ok) {
+        toast.success(`${field.label} removed`);
+        clearEdits([field.key]);
+        await fetchSettings();
+      } else {
+        toast.error(await errorMessage(res, "Failed to remove"));
+      }
+    } catch {
+      toast.error("Failed to remove");
+    } finally {
+      setRemoving((prev) => ({ ...prev, [field.key]: false }));
     }
   };
 
@@ -296,32 +380,89 @@ export default function SettingsPage() {
             <Separator />
             <CardContent className="pt-6">
               <div className="space-y-4">
-                {section.fields.map((field) => (
-                  <div key={field.key} className="space-y-2">
-                    <Label htmlFor={field.key}>{field.label}</Label>
-                    <div className="relative">
-                      <Input
-                        id={field.key}
-                        type={visibility[field.key] ? "text" : "password"}
-                        value={values[field.key] || ""}
-                        onChange={(e) => handleChange(field.key, e.target.value)}
-                        placeholder={field.placeholder}
-                        className="pr-10"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => toggleVisibility(field.key)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                      >
-                        {visibility[field.key] ? (
-                          <EyeOff className="h-4 w-4" />
-                        ) : (
-                          <Eye className="h-4 w-4" />
-                        )}
-                      </button>
+                {section.fields.map((field) => {
+                  const status = field.isPublic ? undefined : secrets[field.key];
+                  const saved = !!status?.set;
+                  const statusId = `${field.key}-status`;
+                  const value = field.isPublic
+                    ? (field.key in edits ? edits[field.key] : publicValues[field.key] ?? "")
+                    : edits[field.key] ?? "";
+                  return (
+                    <div key={field.key} className="space-y-2">
+                      <Label htmlFor={field.key}>{field.label}</Label>
+                      <div className="relative">
+                        <Input
+                          id={field.key}
+                          type={visibility[field.key] ? "text" : "password"}
+                          value={value}
+                          onChange={(e) => handleChange(field.key, e.target.value)}
+                          placeholder={saved ? REPLACE_PLACEHOLDER : field.placeholder}
+                          aria-describedby={saved ? statusId : undefined}
+                          // Stop the browser or a password manager from filling a
+                          // login password into an empty key field.
+                          autoComplete={field.isPublic ? "off" : "new-password"}
+                          {...(field.isPublic
+                            ? {}
+                            : {
+                                "data-1p-ignore": "",
+                                "data-lpignore": "true",
+                                "data-bwignore": "",
+                                "data-form-type": "other",
+                              })}
+                          spellCheck={false}
+                          autoCapitalize="none"
+                          autoCorrect="off"
+                          className="pr-10"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => toggleVisibility(field.key)}
+                          aria-label={visibility[field.key] ? `Hide ${field.label}` : `Show ${field.label}`}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          {visibility[field.key] ? (
+                            <EyeOff className="h-4 w-4" />
+                          ) : (
+                            <Eye className="h-4 w-4" />
+                          )}
+                        </button>
+                      </div>
+                      {saved && (
+                        <div className="flex items-start justify-between gap-3">
+                          <p
+                            id={statusId}
+                            className={`flex items-start gap-1.5 text-xs ${status?.unreadable ? "text-destructive" : "text-muted-foreground"}`}
+                          >
+                            {status?.unreadable ? (
+                              <TriangleAlert className="h-3.5 w-3.5 mt-px shrink-0" />
+                            ) : (
+                              <Check className="h-3.5 w-3.5 mt-px shrink-0 text-green-600" />
+                            )}
+                            <span>
+                              {status?.unreadable
+                                ? "Saved, but it can no longer be read. Enter it again."
+                                : status?.last4
+                                  ? `Saved, ends in ${status.last4}`
+                                  : "Saved"}
+                            </span>
+                          </p>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="xs"
+                            onClick={() => handleRemove(field)}
+                            disabled={removing[field.key]}
+                            aria-label={`Remove the saved ${field.label}`}
+                            className="text-muted-foreground hover:text-destructive"
+                          >
+                            <Trash2 />
+                            {removing[field.key] ? "Removing..." : "Remove"}
+                          </Button>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
                 <div className="pt-2">
                   <Button
                     onClick={() => handleSave(section)}

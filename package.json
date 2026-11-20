@@ -10,7 +10,8 @@
     "test": "node tests/run.mjs",
     "test:db-setup": "bash tests/db-bootstrap.sh",
     "db:migrate": "node scripts/db-migrate.mjs",
-    "db:make-admin": "node scripts/db-make-admin.mjs"
+    "db:make-admin": "node scripts/db-make-admin.mjs",
+    "db:encrypt-secrets": "node scripts/encrypt-existing-secrets.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",

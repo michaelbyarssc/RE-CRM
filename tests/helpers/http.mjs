@@ -83,7 +83,14 @@ export async function api(path, opts = {}) {
   if (RESPONSE_LOG) {
     appendFileSync(
       RESPONSE_LOG,
-      JSON.stringify({ method, path, status: res.status, body: text.slice(0, 20000) }) + "\n"
+      JSON.stringify({
+        method,
+        path,
+        status: res.status,
+        body: text.slice(0, 20000),
+        location: result.location,
+        setCookies: result.setCookies,
+      }) + "\n"
     );
   }
   return result;

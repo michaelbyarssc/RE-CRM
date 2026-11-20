@@ -3,6 +3,18 @@ import "server-only";
 import { db } from "@/lib/db";
 import { googleCalendarTokens, calendarEvents } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
+import {
+  GOOGLE_ENCRYPTION_NOT_CONFIGURED_MESSAGE,
+  encryptToken,
+  readToken,
+  requireKeyRing,
+  type TokenColumn,
+} from "@/lib/secrets";
+
+// Google access and refresh tokens are stored encrypted (lib/secrets). Every
+// read and write of the two token columns goes through this file, and a
+// decrypted refresh token never leaves it. Old plain-text rows still work and
+// are encrypted on the next write.
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID!;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET!;
@@ -29,6 +41,32 @@ export function getGoogleAuthUrl(state: string) {
   return `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
 }
 
+/**
+ * Google's token endpoint said no. Carries only the HTTP status and Google's
+ * short error code (for example invalid_grant), never Google's free text, so
+ * callers can log these two fields safely.
+ */
+export class GoogleTokenError extends Error {
+  constructor(
+    public readonly step: "exchange" | "refresh",
+    public readonly status: number,
+    public readonly code: string | null
+  ) {
+    super(`Google token ${step} failed`);
+    this.name = "GoogleTokenError";
+  }
+}
+
+/** Google's `error` field, only if the answer is JSON and it is a short code of letters and underscores. */
+async function googleErrorCode(res: Response): Promise<string | null> {
+  try {
+    const body = (await res.json()) as { error?: unknown };
+    return typeof body?.error === "string" && /^[a-z_]{1,64}$/.test(body.error) ? body.error : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function exchangeCodeForTokens(code: string) {
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -43,16 +81,57 @@ export async function exchangeCodeForTokens(code: string) {
   });
 
   if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Token exchange failed: ${err}`);
+    // Google's answer is not passed on or logged: only the status and the short code.
+    throw new GoogleTokenError("exchange", res.status, await googleErrorCode(res));
   }
 
-  return res.json() as Promise<{
-    access_token: string;
-    refresh_token: string;
-    expires_in: number;
-    token_type: string;
-  }>;
+  return (await res.json()) as {
+    access_token?: unknown;
+    refresh_token?: unknown;
+    expires_in?: unknown;
+    token_type?: unknown;
+  };
+}
+
+export type GoogleTokenRow = Omit<typeof googleCalendarTokens.$inferSelect, "accessToken" | "refreshToken">;
+
+function nonEmpty(value: unknown): value is string {
+  return typeof value === "string" && value.trim() !== "";
+}
+
+function expiryFrom(expiresIn: unknown): string {
+  const seconds = typeof expiresIn === "number" && Number.isFinite(expiresIn) && expiresIn > 0 ? expiresIn : 3600;
+  return new Date(Date.now() + seconds * 1000).toISOString();
+}
+
+/**
+ * Replace this user's Google tokens with new ones, encrypted. Both tokens must
+ * be non-empty strings. Throws 503 when the encryption key is not configured.
+ */
+export async function storeGoogleTokens(
+  userId: string,
+  tokens: { access_token?: unknown; refresh_token?: unknown; expires_in?: unknown }
+) {
+  if (!userId) throw new Error("storeGoogleTokens needs a user id");
+  if (!nonEmpty(tokens.access_token) || !nonEmpty(tokens.refresh_token)) {
+    throw new Error("Google did not return both tokens");
+  }
+  const ring = requireKeyRing(GOOGLE_ENCRYPTION_NOT_CONFIGURED_MESSAGE);
+  const accessToken = encryptToken(ring, userId, "access_token", tokens.access_token);
+  const refreshToken = encryptToken(ring, userId, "refresh_token", tokens.refresh_token);
+  const expiresAt = expiryFrom(tokens.expires_in);
+  await db.transaction(async (tx) => {
+    // Clear existing tokens for this user only
+    await tx.delete(googleCalendarTokens).where(eq(googleCalendarTokens.userId, userId));
+    await tx.insert(googleCalendarTokens).values({
+      userId,
+      accessToken,
+      refreshToken,
+      expiresAt,
+      calendarId: "primary",
+      syncEnabled: 1,
+    });
+  });
 }
 
 export async function refreshAccessToken(refreshToken: string) {
@@ -68,48 +147,86 @@ export async function refreshAccessToken(refreshToken: string) {
   });
 
   if (!res.ok) {
-    throw new Error("Token refresh failed");
+    throw new GoogleTokenError("refresh", res.status, await googleErrorCode(res));
   }
 
-  return res.json() as Promise<{
-    access_token: string;
-    expires_in: number;
-  }>;
+  return (await res.json()) as {
+    access_token?: unknown;
+    expires_in?: unknown;
+  };
 }
 
-export async function getValidToken(userId: string): Promise<{ accessToken: string; tokenRow: typeof googleCalendarTokens.$inferSelect } | null> {
+/**
+ * The user's Google access token (decrypted, refreshed if it is about to
+ * expire) and the token row WITHOUT the two token fields. Null when the user
+ * has not connected, the refresh fails, or a saved token cannot be decrypted
+ * (the user can reconnect). Throws 503 when a token row exists but the
+ * encryption key is not configured.
+ */
+export async function getValidToken(userId: string): Promise<{ accessToken: string; tokenRow: GoogleTokenRow } | null> {
   // A user id is required: there is no "any user's token" fallback.
   if (!userId) throw new Error("getValidToken needs a user id");
   const [row] = await db.select().from(googleCalendarTokens)
     .where(eq(googleCalendarTokens.userId, userId)).limit(1);
   if (!row) return null;
 
+  const ring = requireKeyRing(GOOGLE_ENCRYPTION_NOT_CONFIGURED_MESSAGE);
+  const { accessToken: storedAccess, refreshToken: storedRefresh, ...tokenRow } = row;
+  const read = (column: TokenColumn, stored: string) => {
+    const result = readToken(ring, userId, column, stored);
+    if (result.state === "readable") return result;
+    // A key version that is not configured is logged once per version by
+    // lib/secrets; the user is treated as not connected and can reconnect.
+    if (result.state === "locked") return null;
+    console.error(`Google Calendar token could not be read: user ${userId}, field ${column}.`);
+    return null;
+  };
+  const access = read("access_token", storedAccess);
+  const refresh = read("refresh_token", storedRefresh);
+  if (!access || !refresh) return null;
+
   // Check if token is expired (with 5 min buffer)
   const expiresAt = new Date(row.expiresAt).getTime();
   const now = Date.now();
 
-  if (now > expiresAt - 5 * 60 * 1000) {
-    // Refresh
-    try {
-      const refreshed = await refreshAccessToken(row.refreshToken);
-      const newExpiry = new Date(Date.now() + refreshed.expires_in * 1000).toISOString();
-
-      await db
-        .update(googleCalendarTokens)
-        .set({
-          accessToken: refreshed.access_token,
-          expiresAt: newExpiry,
-          updatedAt: new Date().toISOString(),
-        })
-        .where(and(eq(googleCalendarTokens.id, row.id), eq(googleCalendarTokens.userId, userId)));
-
-      return { accessToken: refreshed.access_token, tokenRow: { ...row, accessToken: refreshed.access_token, expiresAt: newExpiry } };
-    } catch {
-      return null;
-    }
+  if (!(now > expiresAt - 5 * 60 * 1000)) {
+    return { accessToken: access.value, tokenRow };
   }
 
-  return { accessToken: row.accessToken, tokenRow: row };
+  // Refresh
+  let refreshed;
+  try {
+    refreshed = await refreshAccessToken(refresh.value);
+  } catch (err) {
+    // One line: user id, status and Google's short code, or the error name.
+    console.error(
+      err instanceof GoogleTokenError
+        ? `Google token refresh failed: user ${userId}, status ${err.status}, code ${err.code ?? "none"}.`
+        : `Google token refresh failed: user ${userId}, ${errorName(err)}.`
+    );
+    return null;
+  }
+  if (!nonEmpty(refreshed.access_token)) return null;
+  const newExpiry = expiryFrom(refreshed.expires_in);
+  const nowISO = new Date().toISOString();
+
+  await db
+    .update(googleCalendarTokens)
+    .set({
+      accessToken: encryptToken(ring, userId, "access_token", refreshed.access_token),
+      // An old plain-text refresh token is encrypted on this write too.
+      ...(refresh.legacy ? { refreshToken: encryptToken(ring, userId, "refresh_token", refresh.value) } : {}),
+      expiresAt: newExpiry,
+      updatedAt: nowISO,
+    })
+    .where(and(eq(googleCalendarTokens.id, row.id), eq(googleCalendarTokens.userId, userId)));
+
+  return { accessToken: refreshed.access_token, tokenRow: { ...tokenRow, expiresAt: newExpiry, updatedAt: nowISO } };
+}
+
+/** A short, safe description of an error for logs: its name only, never its text. */
+function errorName(err: unknown): string {
+  return err instanceof Error ? err.name : "unknown error";
 }
 
 // Google Calendar API helpers
@@ -206,8 +323,8 @@ export async function pushEventToGoogle(
   }
 
   if (!res.ok) {
-    const err = await res.text();
-    console.error("Google Calendar push failed:", err);
+    // Fixed text and ids only: Google's answer is not logged.
+    console.error(`Google Calendar push failed: status ${res.status}, event ${crmEvent.id}.`);
     await db
       .update(calendarEvents)
       .set({ syncStatus: "error", updatedAt: new Date().toISOString() })
@@ -267,7 +384,7 @@ export async function autoSyncEvent(crmEvent: {
     const calendarId = tokenRow.calendarId || "primary";
     await pushEventToGoogle(accessToken, calendarId, crmEvent);
   } catch (err) {
-    console.error("Auto-sync to Google failed:", err);
+    console.error(`Auto-sync to Google failed: event ${crmEvent.id}, ${errorName(err)}.`);
   }
 }
 
@@ -285,7 +402,7 @@ export async function autoDeleteFromGoogle(googleEventId: string | null | undefi
     const calendarId = tokenRow.calendarId || "primary";
     await deleteEventFromGoogle(accessToken, calendarId, googleEventId);
   } catch (err) {
-    console.error("Auto-delete from Google failed:", err);
+    console.error(`Auto-delete from Google failed: user ${userId}, ${errorName(err)}.`);
   }
 }
 

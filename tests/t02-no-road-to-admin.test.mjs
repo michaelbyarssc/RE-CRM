@@ -54,6 +54,7 @@ function sweepPlan(ids) {
     "POST /api/sequences/process": { path: "/api/sequences/process", body: {} },
     "POST /api/sequences": { path: "/api/sequences", body: { name: "Sweep sequence" } },
     "POST /api/settings": { path: "/api/settings", body: { sweep_setting: "on" } },
+    "DELETE /api/settings": { path: "/api/settings?key=sweep_setting" },
     "POST /api/tags": { path: "/api/tags", body: { name: "Sweep tag" } },
   };
 }
