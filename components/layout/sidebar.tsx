@@ -47,10 +47,6 @@ const navItems = [
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
-// True once this page has signed the user out. A browser can keep the page in
-// memory and show it again on Back, so it must never be shown again as it was.
-let signedOutOnThisPage = false;
-
 // The Supabase sign-in cookie: "sb-<project>-auth-token", split into ".0", ".1"
 // and so on when it is long. It is readable here (not httpOnly).
 function hasSignInCookie() {
@@ -64,21 +60,25 @@ function reloadFromServer() {
   window.location.reload();
 }
 
-// The proxy never lets a signed-out visitor reach a page with this sidebar.
-// So if one shows up without the sign-in cookie, or after this page signed
-// out, the browser took it from memory or from its cache (for example on the
-// Back button after Sign Out) and it may still show the user's data.
-function reloadIfSignedOut(event?: PageTransitionEvent) {
+// A page with this sidebar can be shown without asking the server:
+// - restored from memory by the Back or Forward button (the browser's
+//   back-forward cache). It may show data of whoever was signed in when the
+//   page was put away, even if somebody else is signed in now. So such a page
+//   is always loaded again from the server, whatever the cookie says.
+// - taken from the browser's ordinary cache. The proxy never lets a
+//   signed-out visitor reach this page, so without the sign-in cookie it
+//   cannot have come from the server: load it again.
+function reloadIfNotFromServer(event?: PageTransitionEvent) {
   if (["/login", "/privacy", "/terms"].includes(window.location.pathname)) return;
-  if (!signedOutOnThisPage && hasSignInCookie()) return;
-  // Restored from memory (the Back or Forward button): always ask the server.
   if (event?.persisted) return reloadFromServer();
-  // A page that came from a reload came from the server, and the proxy only
-  // serves it to a signed-in visitor. Reloading again could loop forever if
-  // the cookie check above were ever wrong, so stop here.
+  if (hasSignInCookie()) return;
+  // This guard only matters if the cookie test above were ever wrong: a page
+  // that came from a reload came from the server, so do not reload it again,
+  // or it would reload forever. Older Safari has no navigation entry and uses
+  // performance.navigation instead (type 1 means a reload).
   const nav = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
-  if (nav?.type === "reload") return;
-  // Otherwise the browser took the page from its cache without asking the server.
+  const reloaded = nav ? nav.type === "reload" : performance.navigation?.type === 1;
+  if (reloaded) return;
   reloadFromServer();
 }
 
@@ -86,8 +86,8 @@ function reloadIfSignedOut(event?: PageTransitionEvent) {
 // page and before the page asks for its data. "pageshow" also fires when a page
 // is restored from memory, which runs no code again.
 if (typeof window !== "undefined") {
-  reloadIfSignedOut();
-  window.addEventListener("pageshow", reloadIfSignedOut);
+  reloadIfNotFromServer();
+  window.addEventListener("pageshow", reloadIfNotFromServer);
 }
 
 function SidebarContent({
@@ -209,7 +209,6 @@ export function Sidebar() {
     // A browser may keep this page in memory and show it again on Back. It is
     // hidden first, so a kept copy is blank, and the "pageshow" check above
     // reloads it from the server, which sends the visitor to /login.
-    signedOutOnThisPage = true;
     document.documentElement.style.visibility = "hidden";
     // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- a full page load is the point here, see above
     window.location.assign("/login");
