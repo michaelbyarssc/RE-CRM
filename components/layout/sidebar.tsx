@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import {
   Users,
   Upload,
@@ -54,15 +55,60 @@ function emailParts(email: string) {
     : { local: email, domain: "" };
 }
 
+// The Supabase sign-in cookie: "sb-<project>-auth-token", split into ".0", ".1"
+// and so on when it is long. It is readable here (not httpOnly).
+function hasSignInCookie() {
+  return /(?:^|;\s*)sb-[^=;]+-auth-token(?:\.\d+)?=[^;]/.test(document.cookie);
+}
+
+// Hide the page and load it again from the server, which sends a signed-out
+// visitor to /login.
+function reloadFromServer() {
+  document.documentElement.style.visibility = "hidden";
+  window.location.reload();
+}
+
+// A page with this sidebar can be shown without asking the server:
+// - restored from memory by the Back or Forward button (the browser's
+//   back-forward cache). It may show data of whoever was signed in when the
+//   page was put away, even if somebody else is signed in now. So such a page
+//   is always loaded again from the server, whatever the cookie says.
+// - taken from the browser's ordinary cache. The proxy never lets a
+//   signed-out visitor reach this page, so without the sign-in cookie it
+//   cannot have come from the server: load it again.
+function reloadIfNotFromServer(event?: PageTransitionEvent) {
+  if (["/login", "/privacy", "/terms"].includes(window.location.pathname)) return;
+  if (event?.persisted) return reloadFromServer();
+  if (hasSignInCookie()) return;
+  // This guard only matters if the cookie test above were ever wrong: a page
+  // that came from a reload came from the server, so do not reload it again,
+  // or it would reload forever. Older Safari has no navigation entry and uses
+  // performance.navigation instead (type 1 means a reload).
+  const nav = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
+  const reloaded = nav ? nav.type === "reload" : performance.navigation?.type === 1;
+  if (reloaded) return;
+  reloadFromServer();
+}
+
+// Runs when this code is first loaded in the browser, before React starts the
+// page and before the page asks for its data. "pageshow" also fires when a page
+// is restored from memory, which runs no code again.
+if (typeof window !== "undefined") {
+  reloadIfNotFromServer();
+  window.addEventListener("pageshow", reloadIfNotFromServer);
+}
+
 function SidebarContent({
   pathname,
   userEmail,
   handleSignOut,
+  signingOut,
   onNavClick,
 }: {
   pathname: string;
   userEmail: string | null;
   handleSignOut: () => void;
+  signingOut: boolean;
   onNavClick?: () => void;
 }) {
   return (
@@ -116,9 +162,10 @@ function SidebarContent({
             size="sm"
             className="w-full justify-start gap-3 text-muted-foreground hover:text-foreground"
             onClick={handleSignOut}
+            disabled={signingOut}
           >
             <LogOut className="h-4 w-4" />
-            Sign Out
+            {signingOut ? "Signing out..." : "Sign Out"}
           </Button>
         </div>
       )}
@@ -128,9 +175,9 @@ function SidebarContent({
 
 export function Sidebar() {
   const pathname = usePathname();
-  const router = useRouter();
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
 
   // The Supabase client is created in the browser only (not while the page is
   // prerendered at build time, when its settings may not be available).
@@ -146,9 +193,41 @@ export function Sidebar() {
   }, [pathname]);
 
   const handleSignOut = async () => {
-    await createSupabaseBrowserClient().auth.signOut();
-    router.push("/login");
-    router.refresh();
+    if (signingOut) return;
+    setSigningOut(true);
+    let failed = false;
+    let noConnection = false;
+    try {
+      // signOut() does not throw when the sign-in service refuses or cannot be
+      // reached: it returns the error and keeps the user signed in.
+      const { error } = await createSupabaseBrowserClient().auth.signOut();
+      if (error) {
+        failed = true;
+        noConnection = error.status === 0;
+      }
+    } catch {
+      failed = true;
+      noConnection = true;
+    }
+    if (failed) {
+      setSigningOut(false);
+      toast.error(
+        noConnection
+          ? "Could not sign out. Check your internet connection and try again."
+          : "Could not sign out. Something went wrong on our side. Try again in a minute."
+      );
+      return;
+    }
+    // A full page load, not router.push("/login") plus router.refresh(). The
+    // refresh made the router fetch again every sidebar link still on screen
+    // (prefetching). The proxy sends those signed-out requests to /login,
+    // which has no data for them, so the browser logged a 404 for each one.
+    // A browser may keep this page in memory and show it again on Back. It is
+    // hidden first, so a kept copy is blank, and the "pageshow" check above
+    // reloads it from the server, which sends the visitor to /login.
+    document.documentElement.style.visibility = "hidden";
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- a full page load is the point here, see above
+    window.location.assign("/login");
   };
 
   return (
@@ -170,6 +249,7 @@ export function Sidebar() {
               pathname={pathname}
               userEmail={userEmail}
               handleSignOut={handleSignOut}
+              signingOut={signingOut}
               onNavClick={() => setSheetOpen(false)}
             />
           </SheetContent>
@@ -183,6 +263,7 @@ export function Sidebar() {
           pathname={pathname}
           userEmail={userEmail}
           handleSignOut={handleSignOut}
+          signingOut={signingOut}
         />
       </aside>
     </>

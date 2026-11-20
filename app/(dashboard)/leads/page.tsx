@@ -43,6 +43,7 @@ import { QuickNoteDialog } from "@/components/leads/quick-note-dialog";
 import { TagBadge } from "@/components/tags/tag-badge";
 import { LEAD_STATUSES } from "@/lib/constants";
 import { toast } from "sonner";
+import { apiFetch, apiErrorMessage } from "@/lib/api-fetch";
 import {
   Search,
   MoreHorizontal,
@@ -179,6 +180,17 @@ function LeadTagChips({
   );
 }
 
+// What the bulk actions menu tells the user, per action.
+const BULK_TEXTS: Record<"updateStatus" | "addTag" | "delete", { what: string; check?: string; done: (n: number) => string }> = {
+  updateStatus: {
+    what: "Could not change the status of the selected leads",
+    check: "Pick one of the statuses in the list.",
+    done: (n) => `Updated ${n} leads`,
+  },
+  addTag: { what: "Could not tag the selected leads", done: (n) => `Tagged ${n} leads` },
+  delete: { what: "Could not delete the selected leads", done: (n) => `Deleted ${n} leads` },
+};
+
 export default function LeadsPage() {
   const router = useRouter();
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -189,27 +201,60 @@ export default function LeadsPage() {
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [allTags, setAllTags] = useState<LeadTag[]>([]);
   const [loading, setLoading] = useState(true);
+  // True after a refused load, until a load succeeds. With no leads on the
+  // screen it shows a sentence instead of "No leads found", which would not be true.
+  const [loadFailed, setLoadFailed] = useState(false);
   const pageSize = 50;
 
-  const fetchLeads = useCallback(async () => {
-    setLoading(true);
-    const params = new URLSearchParams();
-    if (search) params.set("search", search);
-    if (statusFilter !== "all") params.set("status", statusFilter);
-    params.set("page", String(page));
-    params.set("pageSize", String(pageSize));
+  // Loads one page of leads. On a refusal the leads already on the screen stay.
+  // `quiet` is for the reload after a refused change: its message is already shown.
+  const fetchLeads = useCallback(
+    async ({ quiet = false }: { quiet?: boolean } = {}) => {
+      setLoading(true);
+      try {
+        const params = new URLSearchParams();
+        if (search) params.set("search", search);
+        if (statusFilter !== "all") params.set("status", statusFilter);
+        params.set("page", String(page));
+        params.set("pageSize", String(pageSize));
 
-    const res = await fetch(`/api/leads?${params}`);
-    const data = await res.json();
-    setLeads(data.leads);
-    setTotal(data.total);
-    setLoading(false);
-  }, [search, statusFilter, page]);
+        const res = await apiFetch(`/api/leads?${params}`);
+        if (!res.ok) {
+          setLoadFailed(true);
+          if (!quiet) toast.error(await apiErrorMessage(res, "Could not load your leads"));
+          return;
+        }
+        const data = await res.json().catch(() => null);
+        if (!data || !Array.isArray(data.leads)) {
+          setLoadFailed(true);
+          if (!quiet) toast.error("Could not load your leads. Something went wrong on our side. Try again in a minute.");
+          return;
+        }
+        setLoadFailed(false);
+        setLeads(data.leads);
+        // The selection is kept by lead id. Drop the ids of leads that are no
+        // longer on the screen, so a bulk action never reaches a lead the user cannot see.
+        const shownIds = new Set((data.leads as Lead[]).map((l) => String(l.id)));
+        setRowSelection((prev) => {
+          const kept = Object.fromEntries(
+            Object.entries(prev).filter(([key, on]) => on && shownIds.has(key))
+          );
+          return Object.keys(kept).length === Object.keys(prev).length ? prev : kept;
+        });
+        setTotal(typeof data.total === "number" ? data.total : data.leads.length);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [search, statusFilter, page]
+  );
 
+  // Quiet on a refusal: the leads load next to it already tells the user. The tags on the screen stay.
   const fetchTags = useCallback(async () => {
-    const res = await fetch("/api/tags");
-    const data = await res.json();
-    setAllTags(data);
+    const res = await apiFetch("/api/tags");
+    if (!res.ok) return;
+    const data = await res.json().catch(() => null);
+    if (Array.isArray(data)) setAllTags(data);
   }, []);
 
   useEffect(() => {
@@ -230,52 +275,80 @@ export default function LeadsPage() {
     return () => clearTimeout(timer);
   }, [searchInput]);
 
-  const selectedIds = Object.keys(rowSelection)
-    .filter((key) => rowSelection[key])
-    .map((key) => leads[Number(key)]?.id)
-    .filter(Boolean);
+  // The selected leads that are on the screen, by id (the table's row id is the lead id).
+  const selectedIds = leads
+    .filter((lead) => rowSelection[String(lead.id)])
+    .map((lead) => lead.id);
 
   const handleBulkAction = async (
-    action: string,
+    action: "updateStatus" | "addTag" | "delete",
     extra?: Record<string, unknown>
   ) => {
     if (selectedIds.length === 0) return;
-    await fetch("/api/leads", {
+    const count = selectedIds.length;
+    const texts = BULK_TEXTS[action];
+    const res = await apiFetch("/api/leads", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action, ids: selectedIds, ...extra }),
     });
+    // On a refusal the selection stays so the user can try again.
+    if (!res.ok) {
+      toast.error(await apiErrorMessage(res, texts.what, texts.check));
+      fetchLeads({ quiet: true });
+      return;
+    }
     setRowSelection({});
     fetchLeads();
+    toast.success(texts.done(count));
   };
 
   const handleStatusChange = async (id: number, status: string) => {
-    await fetch(`/api/leads/${id}`, {
+    const res = await apiFetch(`/api/leads/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
     });
+    // Reload either way so each row shows the status that was saved.
+    // After a refusal the reload is quiet, so the message about the status is the one the user reads.
+    if (!res.ok) {
+      toast.error(
+        await apiErrorMessage(res, "Could not update the status", "Pick one of the statuses in the list.")
+      );
+      fetchLeads({ quiet: true });
+      return;
+    }
     fetchLeads();
   };
 
   const handleAddTag = async (leadId: number, tagId: number) => {
-    await fetch(`/api/leads/${leadId}`, {
+    const res = await apiFetch(`/api/leads/${leadId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "addTag", tagId }),
     });
-    toast.success("Tag added");
+    if (!res.ok) {
+      toast.error(await apiErrorMessage(res, "Could not add the tag"));
+      fetchLeads({ quiet: true });
+      return;
+    }
     fetchLeads();
+    toast.success("Tag added");
   };
 
   const handleRemoveTag = async (leadId: number, tagId: number) => {
-    await fetch(`/api/leads/${leadId}`, {
+    const res = await apiFetch(`/api/leads/${leadId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "removeTag", tagId }),
     });
-    toast.success("Tag removed");
+    if (!res.ok) {
+      toast.error(await apiErrorMessage(res, "Could not remove the tag"));
+      fetchLeads({ quiet: true });
+      return;
+    }
     fetchLeads();
+    toast.success("Tag removed");
   };
 
   const columns: ColumnDef<Lead>[] = [
@@ -387,16 +460,27 @@ export default function LeadsPage() {
     data: leads,
     columns,
     getCoreRowModel: getCoreRowModel(),
+    // Keep the selection by lead id, not by row position: after a reload the
+    // rows can come back in another order.
+    getRowId: (row) => String(row.id),
     onRowSelectionChange: setRowSelection,
     state: { rowSelection },
   });
 
   const totalPages = Math.ceil(total / pageSize);
+  const showLoadFailed = loadFailed && leads.length === 0;
+  // Runs the same load again (not quiet, so a second refusal says so again).
+  // After a refused load the filter may already show the new value, so picking it again would send nothing.
+  const retryButton = (
+    <Button variant="outline" size="sm" onClick={() => fetchLeads()} disabled={loading}>
+      Try again
+    </Button>
+  );
 
   return (
     <div>
       <div className="flex flex-col gap-3 mb-6 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-2xl font-bold">Leads ({total})</h1>
+        <h1 className="text-2xl font-bold">{showLoadFailed ? "Leads" : `Leads (${total})`}</h1>
         <div className="flex items-center gap-2">
           <AddLeadDialog onLeadCreated={fetchLeads} />
           <Button variant="outline" onClick={() => router.push("/leads/import")}>Import CSV</Button>
@@ -465,9 +549,7 @@ export default function LeadsPage() {
                         onClick={() =>
                           handleBulkAction("updateStatus", {
                             status: s.value,
-                          }).then(() =>
-                            toast.success(`Updated ${selectedIds.length} leads`)
-                          )
+                          })
                         }
                       >
                         <span className={`w-2 h-2 rounded-full ${s.color} mr-2`} />
@@ -488,9 +570,7 @@ export default function LeadsPage() {
                         onClick={() =>
                           handleBulkAction("addTag", {
                             tagId: tag.id,
-                          }).then(() =>
-                            toast.success(`Tagged ${selectedIds.length} leads`)
-                          )
+                          })
                         }
                       >
                         <span
@@ -507,9 +587,7 @@ export default function LeadsPage() {
                   className="text-destructive"
                   onClick={() => {
                     if (confirm(`Delete ${selectedIds.length} leads?`)) {
-                      handleBulkAction("delete").then(() =>
-                        toast.success(`Deleted ${selectedIds.length} leads`)
-                      );
+                      handleBulkAction("delete");
                     }
                   }}
                 >
@@ -522,6 +600,14 @@ export default function LeadsPage() {
         )}
       </div>
 
+      {/* The leads on the screen are from an earlier load. */}
+      {loadFailed && leads.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3 mb-3 text-sm text-muted-foreground">
+          <span>This list could not be updated. It may not match the search and filter above.</span>
+          {retryButton}
+        </div>
+      )}
+
       {/* The list region is one container, so its shape follows the width the
           list really has: one column of cards under 700 px, two columns up to
           939 px, the table from 940 px. */}
@@ -531,7 +617,12 @@ export default function LeadsPage() {
           data-leads-view="cards"
           className="grid grid-cols-1 gap-3 @min-[700px]/leads:grid-cols-2 @min-[940px]/leads:hidden"
         >
-          {loading ? (
+          {showLoadFailed ? (
+            <div className="col-span-full flex flex-wrap items-center justify-center gap-3 py-8 text-muted-foreground">
+              <span>Your leads could not be loaded.</span>
+              {retryButton}
+            </div>
+          ) : loading ? (
             <div className="col-span-full text-center py-8 text-muted-foreground">Loading...</div>
           ) : leads.length === 0 ? (
             <div className="col-span-full text-center py-8 text-muted-foreground">
@@ -544,9 +635,9 @@ export default function LeadsPage() {
               </p>
             </div>
           ) : (
-            leads.map((lead, idx) => {
+            leads.map((lead) => {
               const name = [lead.firstName, lead.lastName].filter(Boolean).join(" ") || "Unknown";
-              const isSelected = rowSelection[idx] === true;
+              const isSelected = rowSelection[String(lead.id)] === true;
               return (
                 <div
                   key={lead.id}
@@ -557,7 +648,7 @@ export default function LeadsPage() {
                       <Checkbox
                         checked={isSelected}
                         onCheckedChange={(value) => {
-                          setRowSelection((prev) => ({ ...prev, [idx]: !!value }));
+                          setRowSelection((prev) => ({ ...prev, [String(lead.id)]: !!value }));
                         }}
                       />
                       <button
@@ -628,7 +719,16 @@ export default function LeadsPage() {
               ))}
             </TableHeader>
             <TableBody>
-              {loading ? (
+              {showLoadFailed ? (
+                <TableRow>
+                  <TableCell colSpan={columns.length} className="py-8 text-muted-foreground">
+                    <div className="flex flex-wrap items-center justify-center gap-3">
+                      <span>Your leads could not be loaded.</span>
+                      {retryButton}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : loading ? (
                 <TableRow>
                   <TableCell colSpan={columns.length} className="text-center py-8">
                     Loading...

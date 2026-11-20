@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, use } from "react";
+import { useState, useEffect, useCallback, useRef, use } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,6 +19,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { apiFetch, apiErrorMessage } from "@/lib/api-fetch";
+import { noteCheck } from "@/components/leads/quick-note-dialog";
 import {
   ArrowLeft,
   Phone,
@@ -80,24 +82,66 @@ export default function LeadDetailPage({
   const [allTags, setAllTags] = useState<LeadTag[]>([]);
   const [editing, setEditing] = useState(false);
   const [editData, setEditData] = useState<Partial<Lead>>({});
+  // True after a refused load of the lead, until a load succeeds. Before the
+  // lead is shown it replaces "Loading..." with a sentence.
+  const [loadFailed, setLoadFailed] = useState(false);
+  // True when the first load answered "not found": a refresh cannot help then.
+  const [notFound, setNotFound] = useState(false);
+  // True while "Try again" runs the load again.
+  const [retrying, setRetrying] = useState(false);
+  // True once a lead has been shown, so a later "not found" keeps the usual message.
+  const leadShownRef = useRef(false);
+  // True while a note is being saved. The ref blocks a second click at once.
+  const [addingNote, setAddingNote] = useState(false);
+  const addingNoteRef = useRef(false);
 
-  const fetchLead = useCallback(async () => {
-    const res = await fetch(`/api/leads/${id}`);
-    if (res.ok) {
-      const data = await res.json();
+  // Loads the lead. On a refusal the lead already on the screen stays.
+  // `quiet` is for the reload after a refused change: its message is already shown.
+  const fetchLead = useCallback(
+    async ({ quiet = false }: { quiet?: boolean } = {}) => {
+      const res = await apiFetch(`/api/leads/${id}`);
+      const data = res.ok ? await res.json().catch(() => null) : null;
+      if (!data || typeof data !== "object") {
+        // Not found before any lead is shown: the screen itself says so, no toast.
+        if (res.status === 404 && !leadShownRef.current) {
+          setNotFound(true);
+          return;
+        }
+        setLoadFailed(true);
+        if (!quiet) {
+          // One id, so a second load at the same time does not stack a second toast.
+          toast.error(
+            res.ok
+              ? "Could not load the lead. Something went wrong on our side. Try again in a minute."
+              : await apiErrorMessage(res, "Could not load the lead"),
+            { id: `lead-load-${id}` }
+          );
+        }
+        return;
+      }
+      leadShownRef.current = true;
+      setNotFound(false);
+      setLoadFailed(false);
       setLead(data);
       setEditData(data);
-    }
-  }, [id]);
+    },
+    [id]
+  );
 
+  // Quiet on a refusal: the notes already on the screen stay.
   const fetchNotes = useCallback(async () => {
-    const res = await fetch(`/api/notes?leadId=${id}`);
-    if (res.ok) setNotes(await res.json());
+    const res = await apiFetch(`/api/notes?leadId=${id}`);
+    if (!res.ok) return;
+    const data = await res.json().catch(() => null);
+    if (Array.isArray(data)) setNotes(data);
   }, [id]);
 
+  // Quiet on a refusal: the tags already on the screen stay.
   const fetchTags = useCallback(async () => {
-    const res = await fetch("/api/tags");
-    if (res.ok) setAllTags(await res.json());
+    const res = await apiFetch("/api/tags");
+    if (!res.ok) return;
+    const data = await res.json().catch(() => null);
+    if (Array.isArray(data)) setAllTags(data);
   }, []);
 
   useEffect(() => {
@@ -107,21 +151,25 @@ export default function LeadDetailPage({
   }, [fetchLead, fetchNotes, fetchTags]);
 
   const handleStatusChange = async (status: string) => {
-    const res = await fetch(`/api/leads/${id}`, {
+    const res = await apiFetch(`/api/leads/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
     });
-    fetchLead();
+    // Reload either way so the status shown is the one that was saved.
+    // After a refusal the reload is quiet, so the message about the status is the one the user reads.
+    fetchLead({ quiet: !res.ok });
     if (!res.ok) {
-      toast.error("Could not update the status");
+      toast.error(
+        await apiErrorMessage(res, "Could not update the status", "Pick one of the statuses in the list.")
+      );
       return;
     }
     toast.success("Status updated");
   };
 
   const handleSave = async () => {
-    const res = await fetch(`/api/leads/${id}`, {
+    const res = await apiFetch(`/api/leads/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -142,9 +190,13 @@ export default function LeadDetailPage({
     // Keep the form open on a rejected save so the edits are not lost.
     if (!res.ok) {
       toast.error(
-        editData.propertyAddress?.trim()
-          ? "Could not save the lead. Check that no field is too long."
-          : "Could not save the lead. The property address is required."
+        await apiErrorMessage(
+          res,
+          "Could not save the lead",
+          editData.propertyAddress?.trim()
+            ? "Check that no field is too long."
+            : "The property address is required."
+        )
       );
       return;
     }
@@ -154,58 +206,111 @@ export default function LeadDetailPage({
   };
 
   const handleAddNote = async () => {
-    if (!newNote.trim()) return;
-    const res = await fetch("/api/notes", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ leadId: Number(id), content: newNote, localNow: new Date().toLocaleString("sv-SE", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }).replace(" ", "T") }),
-    });
-    const data = await res.json();
-    setNewNote("");
-    fetchNotes();
-    toast.success("Note added");
-    // Show calendar event toast if auto-created
-    if (data.calendarEvent) {
-      const eventDate = new Date(data.calendarEvent.startAt);
-      const typeLabel = data.calendarEvent.eventType === "callback" ? "Callback" :
-        data.calendarEvent.eventType === "appointment" ? "Appointment" : "Follow-up";
-      toast(
-        `📅 ${typeLabel} scheduled`,
-        {
-          description: `${data.calendarEvent.title} — ${eventDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })} at ${eventDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`,
-          action: {
-            label: "View Calendar",
-            onClick: () => window.location.href = "/calendar",
-          },
-        }
-      );
+    // A second click while the first note is saving would save it twice.
+    if (!newNote.trim() || addingNoteRef.current) return;
+    addingNoteRef.current = true;
+    setAddingNote(true);
+    try {
+      const res = await apiFetch("/api/notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leadId: Number(id), content: newNote, localNow: new Date().toLocaleString("sv-SE", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }).replace(" ", "T") }),
+      });
+      // On a refusal the typed note stays in the box.
+      if (!res.ok) {
+        toast.error(await apiErrorMessage(res, "Could not add the note", noteCheck(newNote)));
+        return;
+      }
+      const data = await res.json().catch(() => ({}));
+      setNewNote("");
+      fetchNotes();
+      toast.success("Note added");
+      // Show calendar event toast if auto-created
+      if (data.calendarEvent) {
+        const eventDate = new Date(data.calendarEvent.startAt);
+        const typeLabel = data.calendarEvent.eventType === "callback" ? "Callback" :
+          data.calendarEvent.eventType === "appointment" ? "Appointment" : "Follow-up";
+        toast(
+          `📅 ${typeLabel} scheduled`,
+          {
+            description: `${data.calendarEvent.title} on ${eventDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })} at ${eventDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`,
+            action: {
+              label: "View Calendar",
+              onClick: () => window.location.href = "/calendar",
+            },
+          }
+        );
+      }
+    } finally {
+      addingNoteRef.current = false;
+      setAddingNote(false);
     }
   };
 
   const handleDeleteNote = async (noteId: number) => {
-    await fetch(`/api/notes?id=${noteId}`, { method: "DELETE" });
+    const res = await apiFetch(`/api/notes?id=${noteId}`, { method: "DELETE" });
+    // Reload either way so the list shows what is really saved.
     fetchNotes();
+    if (!res.ok) {
+      toast.error(await apiErrorMessage(res, "Could not delete the note"));
+    }
   };
 
   const handleAddTag = async (tagId: number) => {
-    await fetch(`/api/leads/${id}`, {
+    const res = await apiFetch(`/api/leads/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "addTag", tagId }),
     });
-    fetchLead();
+    fetchLead({ quiet: !res.ok });
+    if (!res.ok) {
+      toast.error(await apiErrorMessage(res, "Could not add the tag"));
+    }
   };
 
   const handleRemoveTag = async (tagId: number) => {
-    await fetch(`/api/leads/${id}`, {
+    const res = await apiFetch(`/api/leads/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "removeTag", tagId }),
     });
-    fetchLead();
+    fetchLead({ quiet: !res.ok });
+    if (!res.ok) {
+      toast.error(await apiErrorMessage(res, "Could not remove the tag"));
+    }
+  };
+
+  // Runs the first load again (not quiet, so a second refusal says so again).
+  const handleRetry = async () => {
+    setRetrying(true);
+    try {
+      await fetchLead();
+    } finally {
+      setRetrying(false);
+    }
   };
 
   if (!lead) {
+    if (notFound) {
+      return (
+        <div className="p-6 flex flex-wrap items-center gap-3">
+          <span>This lead was not found. It may have been deleted.</span>
+          <Button variant="outline" size="sm" onClick={() => router.push("/leads")}>
+            Back to Leads
+          </Button>
+        </div>
+      );
+    }
+    if (loadFailed) {
+      return (
+        <div className="p-6 flex flex-wrap items-center gap-3">
+          <span>This lead could not be loaded.</span>
+          <Button variant="outline" size="sm" onClick={handleRetry} disabled={retrying}>
+            Try again
+          </Button>
+        </div>
+      );
+    }
     return <div className="p-6">Loading...</div>;
   }
 
@@ -275,7 +380,8 @@ export default function LeadDetailPage({
           />
         ))}
         {availableTags.length > 0 && (
-          <Select onValueChange={(v) => handleAddTag(Number(v))}>
+          // Always empty (value null), so the same tag can be picked again after a refused add.
+          <Select value={null} onValueChange={(v) => v && handleAddTag(Number(v))}>
             <SelectTrigger className="w-[140px] h-7 text-xs">
               <Plus className="h-3 w-3 mr-1" />
               <span>Add Tag</span>
@@ -577,17 +683,19 @@ export default function LeadDetailPage({
               </CardTitle>
             </CardHeader>
             <CardContent>
+              {/* The box grows with the text up to 15rem, then scrolls on its own,
+                  so the Add Note button stays in view with a very long note. */}
               <div className="flex gap-2 mb-4">
                 <Textarea
                   placeholder="Add a note..."
                   value={newNote}
                   onChange={(e) => setNewNote(e.target.value)}
-                  className="min-h-[80px]"
+                  className="min-h-[80px] max-h-60 overflow-y-auto"
                 />
               </div>
               <Button
                 onClick={handleAddNote}
-                disabled={!newNote.trim()}
+                disabled={!newNote.trim() || addingNote}
                 className="mb-6"
               >
                 <Plus className="h-4 w-4 mr-1" />

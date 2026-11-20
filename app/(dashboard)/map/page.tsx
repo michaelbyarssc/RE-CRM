@@ -14,6 +14,7 @@ import {
 import { LEAD_STATUSES } from "@/lib/constants";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
+import { apiFetch, apiErrorMessage } from "@/lib/api-fetch";
 import { MapPin, RefreshCw, UserCheck, Phone, Mail, DollarSign } from "lucide-react";
 
 const MapView = dynamic(
@@ -47,21 +48,40 @@ export default function MapPage() {
   const [geocoding, setGeocoding] = useState(false);
   const [buyerZones, setBuyerZones] = useState<BuyerZone[]>([]);
   const [showBuyerZones, setShowBuyerZones] = useState(false);
+  // True after a refused load, until a load succeeds. With nothing loaded the
+  // header shows a sentence instead of "0 of 0 leads on map".
+  const [loadFailed, setLoadFailed] = useState(false);
 
-  const fetchMapData = useCallback(async () => {
-    const res = await fetch("/api/leads/geocode");
-    const data = await res.json();
+  // Loads the leads for the map. On a refusal what is on the map stays.
+  // `quiet` is for the reload after a refused change: its message is already shown.
+  const fetchMapData = useCallback(async ({ quiet = false }: { quiet?: boolean } = {}) => {
+    const res = await apiFetch("/api/leads/geocode");
+    const data = res.ok ? await res.json().catch(() => null) : null;
+    if (!data || !Array.isArray(data.leads)) {
+      setLoadFailed(true);
+      if (!quiet) {
+        // One id, so a second load at the same time does not stack a second toast.
+        toast.error(
+          res.ok
+            ? "Could not load the map. Something went wrong on our side. Try again in a minute."
+            : await apiErrorMessage(res, "Could not load the map"),
+          { id: "map-load" }
+        );
+      }
+      return;
+    }
+    setLoadFailed(false);
     setLeads(data.leads);
     setTotal(data.total);
     setUngeocoded(data.ungeocoded);
   }, []);
 
+  // Quiet on a refusal: the map load next to it already tells the user. The zones on the map stay.
   const fetchBuyerZones = useCallback(async () => {
-    const res = await fetch("/api/buyers/zones");
-    if (res.ok) {
-      const data = await res.json();
-      setBuyerZones(data);
-    }
+    const res = await apiFetch("/api/buyers/zones");
+    if (!res.ok) return;
+    const data = await res.json().catch(() => null);
+    if (Array.isArray(data)) setBuyerZones(data);
   }, []);
 
   useEffect(() => {
@@ -72,14 +92,23 @@ export default function MapPage() {
   const handleGeocode = async () => {
     setGeocoding(true);
     try {
-      const res = await fetch("/api/leads/geocode", { method: "POST" });
-      const data = await res.json();
-      toast.success(`Geocoded ${data.geocoded} leads. ${data.remaining} remaining.`);
+      const res = await apiFetch("/api/leads/geocode", { method: "POST" });
+      if (!res.ok) {
+        toast.error(await apiErrorMessage(res, "Could not put your leads on the map", "Refresh the page and try again."));
+        fetchMapData({ quiet: true });
+        return;
+      }
+      // The work is done even when the answer cannot be read, so it is still a success.
+      const data = await res.json().catch(() => null);
+      toast.success(
+        data && typeof data.geocoded === "number"
+          ? `Geocoded ${data.geocoded} leads. ${data.remaining} remaining.`
+          : "Finished putting your leads on the map."
+      );
       fetchMapData();
-    } catch {
-      toast.error("Geocoding failed");
+    } finally {
+      setGeocoding(false);
     }
-    setGeocoding(false);
   };
 
   return (
@@ -89,8 +118,14 @@ export default function MapPage() {
           <h1 className="text-2xl font-bold">Map View</h1>
           <p className="text-sm text-muted-foreground">
             <MapPin className="h-3 w-3 inline mr-1" />
-            {leads.length} of {total} leads on map
-            {ungeocoded > 0 && ` (${ungeocoded} need geocoding)`}
+            {loadFailed && leads.length === 0 && total === 0 ? (
+              "Your leads could not be loaded. Refresh the page to try again."
+            ) : (
+              <>
+                {leads.length} of {total} leads on map
+                {ungeocoded > 0 && ` (${ungeocoded} need geocoding)`}
+              </>
+            )}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -164,7 +199,7 @@ export default function MapPage() {
           </div>
         </div>
 
-        {/* Buyer list side panel — visible when Buyer Zones ON */}
+        {/* Buyer list side panel, visible when Buyer Zones ON */}
         {showBuyerZones && buyerZones.length > 0 && (
           <div className="lg:w-80 lg:shrink-0">
             <div className="border rounded-lg bg-card lg:sticky lg:top-4">
