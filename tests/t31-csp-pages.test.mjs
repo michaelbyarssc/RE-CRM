@@ -17,7 +17,7 @@ const SUPABASE_ORIGIN = new URL(process.env.TEST_AUTH_URL).origin;
 // The expected policy, with NONCE where the per-request nonce goes.
 const EXPECTED = [
   ["default-src", "'self'"],
-  ["script-src", "'self' 'nonce-NONCE' 'strict-dynamic'"],
+  ["script-src", "'self' 'nonce-NONCE'"],
   ["style-src", "'self' 'unsafe-inline'"],
   [
     "img-src",
@@ -57,7 +57,7 @@ function assertPolicy(res, label) {
   const { nonce, directives, policy } = readPolicy(res, label);
   assert.deepEqual(directives, EXPECTED, `${label}: policy differs: ${policy}`);
   const scriptSrc = directives.find(([n]) => n === "script-src")[1].split(" ");
-  for (const bad of ["'unsafe-inline'", "'unsafe-eval'", "*", "data:", "blob:", "http:", "https:"]) {
+  for (const bad of ["'unsafe-inline'", "'unsafe-eval'", "'strict-dynamic'", "*", "data:", "blob:", "http:", "https:"]) {
     assert.ok(!scriptSrc.includes(bad), `${label}: ${bad} in script-src`);
   }
   // Plain base64 of at least 16 bytes (128 bits); the app uses 18.

@@ -20,7 +20,7 @@ const SUPABASE = "https://abcdefgh.supabase.co";
 
 const EXPECTED_PRODUCTION = [
   "default-src 'self'",
-  `script-src 'self' 'nonce-${NONCE}' 'strict-dynamic'`,
+  `script-src 'self' 'nonce-${NONCE}'`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: https://a.tile.openstreetmap.org https://b.tile.openstreetmap.org https://c.tile.openstreetmap.org",
   "font-src 'self' data:",
@@ -80,6 +80,17 @@ test("T30 script-src never allows inline scripts, eval in production, wildcards 
     }
     if (!isDev) assert.ok(!scriptSrc.includes("'unsafe-eval'"), `${scriptSrc}`);
   }
+});
+
+// 'strict-dynamic' is left out on purpose: with it, the browser runs any
+// script that other script creates, with no nonce and from any origin.
+// Adding it back must be a deliberate change, and this test is meant to
+// fail when someone makes it.
+test("T30 script-src has no 'strict-dynamic': it is 'self' and the nonce, nothing else in production", () => {
+  const prod = directives(buildPagePolicy({ nonce: NONCE, isDev: false, supabaseUrl: SUPABASE })).get("script-src");
+  assert.deepEqual(prod, ["'self'", `'nonce-${NONCE}'`]);
+  const dev = directives(buildPagePolicy({ nonce: NONCE, isDev: true, supabaseUrl: SUPABASE })).get("script-src");
+  assert.ok(!dev.includes("'strict-dynamic'"), `${dev}`);
 });
 
 test("T30 style-src has no nonce (a nonce would switch off 'unsafe-inline' for Leaflet and FullCalendar)", () => {
