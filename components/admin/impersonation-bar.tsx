@@ -30,10 +30,11 @@ export function ImpersonationBar() {
   const router = useRouter();
 
   useEffect(() => {
+    // Quiet on a refusal: the bar is only for admins, so it just stays hidden.
     fetch("/api/auth/me")
-      .then((r) => r.json())
+      .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
-        if (data.role) setUserInfo(data);
+        if (data?.role) setUserInfo(data);
       })
       .catch(() => {});
   }, []);
@@ -46,8 +47,17 @@ export function ImpersonationBar() {
       setShowPicker(!showPicker);
       return;
     }
-    const res = await fetch("/api/admin/impersonate");
-    const data = await res.json();
+    const res = await apiFetch("/api/admin/impersonate");
+    // On a refusal the list stays as it was (closed) and the admin sees why.
+    if (!res.ok) {
+      toast.error(await apiErrorMessage(res, "Could not load the user list"));
+      return;
+    }
+    const data = await res.json().catch(() => null);
+    if (!Array.isArray(data)) {
+      toast.error("Could not load the user list. Something went wrong on our side. Try again in a minute.");
+      return;
+    }
     setUsers(data);
     setShowPicker(true);
   };

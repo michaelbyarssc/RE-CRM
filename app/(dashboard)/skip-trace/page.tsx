@@ -53,9 +53,19 @@ export default function SkipTracePage() {
   const [provider, setProvider] = useState("batch_skip_tracing");
   const [importProvider, setImportProvider] = useState("batch_skip_tracing");
 
-  const fetchLeads = useCallback(async () => {
-    const res = await fetch("/api/leads?pageSize=200");
-    const data = await res.json();
+  // Loads the leads. On a refusal the leads already on the screen stay.
+  // `quiet` is for the reload after an import with refused rows: its message is already shown.
+  const fetchLeads = useCallback(async ({ quiet = false }: { quiet?: boolean } = {}) => {
+    const res = await apiFetch("/api/leads?pageSize=200");
+    if (!res.ok) {
+      if (!quiet) toast.error(await apiErrorMessage(res, "Could not load your leads"));
+      return;
+    }
+    const data = await res.json().catch(() => null);
+    if (!data || !Array.isArray(data.leads)) {
+      if (!quiet) toast.error("Could not load your leads. Something went wrong on our side. Try again in a minute.");
+      return;
+    }
     setLeads(data.leads);
   }, []);
 
@@ -206,8 +216,9 @@ export default function SkipTracePage() {
           }
         }
 
-        fetchLeads();
         if (firstRefusal) {
+          // Quiet reload: the message about the refused rows is the one the user reads.
+          fetchLeads({ quiet: true });
           toast.error(
             await apiErrorMessage(
               firstRefusal,
@@ -217,6 +228,7 @@ export default function SkipTracePage() {
           );
           return;
         }
+        fetchLeads();
         toast.success(`Updated ${updated} leads with skip trace results`);
       },
     });

@@ -61,9 +61,18 @@ export default function DialerPage() {
   const [savingLog, setSavingLog] = useState(false);
   const [statusFilter, setStatusFilter] = useState("new");
 
+  // Loads the leads to call. On a refusal the leads already on the screen stay.
   const fetchLeads = useCallback(async () => {
-    const res = await fetch(`/api/leads?status=${statusFilter}&pageSize=100`);
-    const data = await res.json();
+    const res = await apiFetch(`/api/leads?status=${statusFilter}&pageSize=100`);
+    if (!res.ok) {
+      toast.error(await apiErrorMessage(res, "Could not load your leads"));
+      return;
+    }
+    const data = await res.json().catch(() => null);
+    if (!data || !Array.isArray(data.leads)) {
+      toast.error("Could not load your leads. Something went wrong on our side. Try again in a minute.");
+      return;
+    }
     // Only leads with phone numbers
     setLeads(data.leads.filter((l: Lead) => l.phone));
   }, [statusFilter]);
@@ -240,7 +249,7 @@ export default function DialerPage() {
 
       {/* Call Log Dialog */}
       <Dialog open={logOpen} onOpenChange={setLogOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Log Call</DialogTitle>
           </DialogHeader>

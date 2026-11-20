@@ -27,9 +27,19 @@ export default function PipelinePage() {
   const [draggedLead, setDraggedLead] = useState<Lead | null>(null);
   const [dragOverStatus, setDragOverStatus] = useState<string | null>(null);
 
-  const fetchLeads = useCallback(async () => {
-    const res = await fetch("/api/leads?pageSize=500");
-    const data = await res.json();
+  // Loads the leads. On a refusal the cards already on the screen stay.
+  // `quiet` is for the reload after a refused move: its message is already shown.
+  const fetchLeads = useCallback(async ({ quiet = false }: { quiet?: boolean } = {}) => {
+    const res = await apiFetch("/api/leads?pageSize=500");
+    if (!res.ok) {
+      if (!quiet) toast.error(await apiErrorMessage(res, "Could not load your leads"));
+      return;
+    }
+    const data = await res.json().catch(() => null);
+    if (!data || !Array.isArray(data.leads)) {
+      if (!quiet) toast.error("Could not load your leads. Something went wrong on our side. Try again in a minute.");
+      return;
+    }
     setLeads(data.leads);
   }, []);
 
@@ -82,7 +92,7 @@ export default function PipelinePage() {
       toast.error(
         await apiErrorMessage(res, "Could not move the lead", "Refresh the page and try again.")
       );
-      fetchLeads();
+      fetchLeads({ quiet: true });
       return;
     }
 

@@ -99,25 +99,43 @@ export default function LeadsPage() {
   const [loading, setLoading] = useState(true);
   const pageSize = 50;
 
-  const fetchLeads = useCallback(async () => {
-    setLoading(true);
-    const params = new URLSearchParams();
-    if (search) params.set("search", search);
-    if (statusFilter !== "all") params.set("status", statusFilter);
-    params.set("page", String(page));
-    params.set("pageSize", String(pageSize));
+  // Loads one page of leads. On a refusal the leads already on the screen stay.
+  // `quiet` is for the reload after a refused change: its message is already shown.
+  const fetchLeads = useCallback(
+    async ({ quiet = false }: { quiet?: boolean } = {}) => {
+      setLoading(true);
+      try {
+        const params = new URLSearchParams();
+        if (search) params.set("search", search);
+        if (statusFilter !== "all") params.set("status", statusFilter);
+        params.set("page", String(page));
+        params.set("pageSize", String(pageSize));
 
-    const res = await fetch(`/api/leads?${params}`);
-    const data = await res.json();
-    setLeads(data.leads);
-    setTotal(data.total);
-    setLoading(false);
-  }, [search, statusFilter, page]);
+        const res = await apiFetch(`/api/leads?${params}`);
+        if (!res.ok) {
+          if (!quiet) toast.error(await apiErrorMessage(res, "Could not load your leads"));
+          return;
+        }
+        const data = await res.json().catch(() => null);
+        if (!data || !Array.isArray(data.leads)) {
+          if (!quiet) toast.error("Could not load your leads. Something went wrong on our side. Try again in a minute.");
+          return;
+        }
+        setLeads(data.leads);
+        setTotal(typeof data.total === "number" ? data.total : data.leads.length);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [search, statusFilter, page]
+  );
 
+  // Quiet on a refusal: the leads load next to it already tells the user. The tags on the screen stay.
   const fetchTags = useCallback(async () => {
-    const res = await fetch("/api/tags");
-    const data = await res.json();
-    setAllTags(data);
+    const res = await apiFetch("/api/tags");
+    if (!res.ok) return;
+    const data = await res.json().catch(() => null);
+    if (Array.isArray(data)) setAllTags(data);
   }, []);
 
   useEffect(() => {
@@ -158,7 +176,7 @@ export default function LeadsPage() {
     // On a refusal the selection stays so the user can try again.
     if (!res.ok) {
       toast.error(await apiErrorMessage(res, texts.what, texts.check));
-      fetchLeads();
+      fetchLeads({ quiet: true });
       return;
     }
     setRowSelection({});
@@ -173,12 +191,15 @@ export default function LeadsPage() {
       body: JSON.stringify({ status }),
     });
     // Reload either way so each row shows the status that was saved.
-    fetchLeads();
+    // After a refusal the reload is quiet, so the message about the status is the one the user reads.
     if (!res.ok) {
       toast.error(
         await apiErrorMessage(res, "Could not update the status", "Pick one of the statuses in the list.")
       );
+      fetchLeads({ quiet: true });
+      return;
     }
+    fetchLeads();
   };
 
   const handleAddTag = async (leadId: number, tagId: number) => {
@@ -187,11 +208,12 @@ export default function LeadsPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "addTag", tagId }),
     });
-    fetchLeads();
     if (!res.ok) {
       toast.error(await apiErrorMessage(res, "Could not add the tag"));
+      fetchLeads({ quiet: true });
       return;
     }
+    fetchLeads();
     toast.success("Tag added");
   };
 
@@ -201,11 +223,12 @@ export default function LeadsPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "removeTag", tagId }),
     });
-    fetchLeads();
     if (!res.ok) {
       toast.error(await apiErrorMessage(res, "Could not remove the tag"));
+      fetchLeads({ quiet: true });
       return;
     }
+    fetchLeads();
     toast.success("Tag removed");
   };
 

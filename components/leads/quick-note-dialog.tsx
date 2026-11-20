@@ -41,12 +41,16 @@ export function QuickNoteDialog({
   const [newNote, setNewNote] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const fetchNotes = async () => {
-    const res = await fetch(`/api/notes?leadId=${leadId}`);
-    if (res.ok) {
-      const data = await res.json();
-      setNotes(data);
+  // Loads the notes. On a refusal the notes already on the screen stay.
+  // `quiet` is for the reload after a refused delete: its message is already shown.
+  const fetchNotes = async ({ quiet = false }: { quiet?: boolean } = {}) => {
+    const res = await apiFetch(`/api/notes?leadId=${leadId}`);
+    if (!res.ok) {
+      if (!quiet) toast.error(await apiErrorMessage(res, "Could not load the notes"));
+      return;
     }
+    const data = await res.json().catch(() => null);
+    if (Array.isArray(data)) setNotes(data);
   };
 
   useEffect(() => {
@@ -98,11 +102,13 @@ export function QuickNoteDialog({
   const handleDeleteNote = async (noteId: number) => {
     const res = await apiFetch(`/api/notes?id=${noteId}`, { method: "DELETE" });
     // Reload either way so the list shows what is really saved.
-    fetchNotes();
+    // After a refusal the reload is quiet, so the message about the delete is the one the user reads.
     if (!res.ok) {
       toast.error(await apiErrorMessage(res, "Could not delete the note"));
+      fetchNotes({ quiet: true });
       return;
     }
+    fetchNotes();
     toast.success("Note deleted");
   };
 
@@ -113,19 +119,20 @@ export function QuickNoteDialog({
       >
         <StickyNote className="h-3.5 w-3.5 text-muted-foreground" />
       </DialogTrigger>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Notes: {leadName}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-3">
-          {/* Add note */}
+          {/* Add note. The box grows with the text up to 15rem, then scrolls on its own,
+              so the Add Note button below it stays in view with a very long note. */}
           <div className="flex gap-2">
             <Textarea
               placeholder="Add a note..."
               value={newNote}
               onChange={(e) => setNewNote(e.target.value)}
-              className="min-h-[60px]"
+              className="min-h-[60px] max-h-60 overflow-y-auto"
               onKeyDown={(e) => {
                 if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
                   handleAddNote();
