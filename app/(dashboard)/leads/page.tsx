@@ -54,39 +54,12 @@ import {
   Plus,
 } from "lucide-react";
 
-// Where the phone number goes in the leads table. The owner is choosing between
-// these; the two unused branches are removed once the choice is made.
-//   "under-name":       second line under the name, no Phone column (recommended)
-//   "column-when-wide": own Phone column when the list is 1115 px or wider,
-//                       under the name below that
-//   "column":           own Phone column always (the old shape; scrolls
-//                       sideways on a 1280 laptop)
-type PhonePlacement = "under-name" | "column-when-wide" | "column";
-const PHONE_PLACEMENT = "under-name" as PhonePlacement;
-
-// Class names for each table column, by column id. The list region is a
-// container named "leads", so these follow the width the list really has
-// (the side menu always takes 256 px), not the screen width. Name and street
-// get a fixed width and wrap inside it, so long data cannot push other
-// columns out of view.
-const NAME_WIDTH =
-  PHONE_PLACEMENT === "under-name"
-    ? "w-[180px] @min-[1100px]/leads:w-[236px]"
-    : "w-[180px] @min-[1115px]/leads:w-[190px]";
-const ADDRESS_WIDTH =
-  PHONE_PLACEMENT === "under-name"
-    ? "w-[212px] @min-[1100px]/leads:w-[244px]"
-    : "w-[212px] @min-[1115px]/leads:w-[226px]";
-// The inline phone line shows when there is no Phone column, and the
-// Phone column cells show when there is one.
-const INLINE_PHONE_CLASS =
-  PHONE_PLACEMENT === "column-when-wide" ? "@min-[1115px]/leads:hidden" : "";
-const COLUMN_CLASS: Record<string, string> = {
-  phone:
-    PHONE_PLACEMENT === "column-when-wide"
-      ? "hidden @min-[1115px]/leads:table-cell"
-      : "",
-};
+// Name and street get a fixed width in the leads table and wrap inside it,
+// so long data cannot push other columns out of view. The list region is a
+// container named "leads", so the wider widths follow the width the list
+// really has (the side menu always takes 256 px), not the screen width.
+const NAME_WIDTH = "w-[176px] @min-[1100px]/leads:w-[236px]";
+const ADDRESS_WIDTH = "w-[212px] @min-[1100px]/leads:w-[244px]";
 
 const ADDED_DAY = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
 const ADDED_FULL = new Intl.DateTimeFormat("en-US", { dateStyle: "long" });
@@ -107,11 +80,11 @@ function AddedDate({ value }: { value: string }) {
   );
 }
 
-function PhoneLink({ phone, className = "" }: { phone: string; className?: string }) {
+function PhoneLink({ phone }: { phone: string }) {
   return (
     <a
       href={`tel:${phone}`}
-      className={`flex w-fit min-w-0 items-start gap-1 text-sm [overflow-wrap:anywhere] hover:underline ${className}`}
+      className="flex w-fit min-w-0 items-start gap-1 text-sm [overflow-wrap:anywhere] hover:underline"
     >
       {/* Top-aligned and nudged to the middle of the first line, so the icon
           stays beside the first line when a long value wraps. */}
@@ -337,15 +310,13 @@ export default function LeadsPage() {
             >
               {name || "Unknown"}
             </button>
-            {PHONE_PLACEMENT !== "column" && (
-              <div data-slot="lead-phone-inline" className={INLINE_PHONE_CLASS}>
-                {lead.phone ? (
-                  <PhoneLink phone={lead.phone} />
-                ) : (
-                  <span className="text-sm text-muted-foreground">No phone</span>
-                )}
-              </div>
-            )}
+            <div data-slot="lead-phone-inline">
+              {lead.phone ? (
+                <PhoneLink phone={lead.phone} />
+              ) : (
+                <span className="text-sm text-muted-foreground">No phone</span>
+              )}
+            </div>
           </div>
         );
       },
@@ -367,22 +338,6 @@ export default function LeadsPage() {
         );
       },
     },
-    ...(PHONE_PLACEMENT === "under-name"
-      ? []
-      : [
-          {
-            accessorKey: "phone",
-            header: "Phone",
-            cell: ({ row }) => {
-              const phone = row.original.phone;
-              return phone ? (
-                <PhoneLink phone={phone} />
-              ) : (
-                <span className="text-muted-foreground text-sm">-</span>
-              );
-            },
-          } satisfies ColumnDef<Lead>,
-        ]),
     {
       accessorKey: "status",
       header: "Status",
@@ -663,7 +618,7 @@ export default function LeadsPage() {
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow key={headerGroup.id}>
                   {headerGroup.headers.map((header) => (
-                    <TableHead key={header.id} className={COLUMN_CLASS[header.column.id]}>
+                    <TableHead key={header.id}>
                       {header.isPlaceholder
                         ? null
                         : flexRender(
@@ -704,11 +659,7 @@ export default function LeadsPage() {
                 table.getRowModel().rows.map((row) => (
                   <TableRow key={row.id}>
                     {row.getVisibleCells().map((cell) => (
-                      <TableCell
-                        key={cell.id}
-                        data-col={cell.column.id === "phone" ? "phone" : undefined}
-                        className={COLUMN_CLASS[cell.column.id]}
-                      >
+                      <TableCell key={cell.id}>
                         {flexRender(
                           cell.column.columnDef.cell,
                           cell.getContext()
