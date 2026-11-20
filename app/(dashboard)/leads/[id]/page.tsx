@@ -85,6 +85,12 @@ export default function LeadDetailPage({
   // True after a refused load of the lead, until a load succeeds. Before the
   // lead is shown it replaces "Loading..." with a sentence.
   const [loadFailed, setLoadFailed] = useState(false);
+  // True when the first load answered "not found": a refresh cannot help then.
+  const [notFound, setNotFound] = useState(false);
+  // True while "Try again" runs the load again.
+  const [retrying, setRetrying] = useState(false);
+  // True once a lead has been shown, so a later "not found" keeps the usual message.
+  const leadShownRef = useRef(false);
   // True while a note is being saved. The ref blocks a second click at once.
   const [addingNote, setAddingNote] = useState(false);
   const addingNoteRef = useRef(false);
@@ -96,6 +102,11 @@ export default function LeadDetailPage({
       const res = await apiFetch(`/api/leads/${id}`);
       const data = res.ok ? await res.json().catch(() => null) : null;
       if (!data || typeof data !== "object") {
+        // Not found before any lead is shown: the screen itself says so, no toast.
+        if (res.status === 404 && !leadShownRef.current) {
+          setNotFound(true);
+          return;
+        }
         setLoadFailed(true);
         if (!quiet) {
           // One id, so a second load at the same time does not stack a second toast.
@@ -108,6 +119,8 @@ export default function LeadDetailPage({
         }
         return;
       }
+      leadShownRef.current = true;
+      setNotFound(false);
       setLoadFailed(false);
       setLead(data);
       setEditData(data);
@@ -267,12 +280,38 @@ export default function LeadDetailPage({
     }
   };
 
+  // Runs the first load again (not quiet, so a second refusal says so again).
+  const handleRetry = async () => {
+    setRetrying(true);
+    try {
+      await fetchLead();
+    } finally {
+      setRetrying(false);
+    }
+  };
+
   if (!lead) {
-    return (
-      <div className="p-6">
-        {loadFailed ? "This lead could not be loaded. Refresh the page to try again." : "Loading..."}
-      </div>
-    );
+    if (notFound) {
+      return (
+        <div className="p-6 flex flex-wrap items-center gap-3">
+          <span>This lead was not found. It may have been deleted.</span>
+          <Button variant="outline" size="sm" onClick={() => router.push("/leads")}>
+            Back to Leads
+          </Button>
+        </div>
+      );
+    }
+    if (loadFailed) {
+      return (
+        <div className="p-6 flex flex-wrap items-center gap-3">
+          <span>This lead could not be loaded.</span>
+          <Button variant="outline" size="sm" onClick={handleRetry} disabled={retrying}>
+            Try again
+          </Button>
+        </div>
+      );
+    }
+    return <div className="p-6">Loading...</div>;
   }
 
   const name = [lead.firstName, lead.lastName].filter(Boolean).join(" ") || "Unknown";
