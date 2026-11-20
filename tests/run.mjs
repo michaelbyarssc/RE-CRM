@@ -20,7 +20,16 @@
 // SETTINGS_ENCRYPTION_KEY, the tests as TEST_SETTINGS_ENCRYPTION_KEY.
 //
 // Options (environment): TEST_DATABASE_URL, TEST_APP_PORT, TEST_AUTH_PORT,
-// TEST_SKIP_BUILD=1 (reuse the last build), TEST_FILES (space separated list).
+// TEST_SKIP_BUILD=1 (reuse the last build), TEST_FILES (space separated list),
+// TEST_BROWSER (see below).
+//
+// Browser checks (t33) need Playwright and its Chromium, which are not
+// dependencies of the app and are never downloaded. The TEST processes (not
+// the app) also get NODE_PATH and PLAYWRIGHT_BROWSERS_PATH from outside, so
+// Playwright and its browser can be found. TEST_BROWSER=1: the browser
+// checks must run (the run fails if Playwright or Chromium is missing);
+// TEST_BROWSER=0: skip them; unset: run them when found, skip with a note
+// when not. The runner prints one line that says which happened.
 
 import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -37,6 +46,7 @@ import {
   SUPABASE_ANON_KEY,
 } from "./helpers/config.mjs";
 import { startAuthStub } from "./helpers/auth-stub.mjs";
+import { findBrowser } from "./helpers/browser.mjs";
 import { applySchema, applyLockdown, lockdownFileExists, LOCKDOWN_FILE } from "../scripts/lib/migrations.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -90,8 +100,23 @@ const appEnv = {
   TEST_GOOGLE_STUB_FILE: googleStubFile,
   NODE_OPTIONS: `--require ${path.join(here, "helpers", "no-network.cjs")}`,
 };
+const browser = findBrowser(process.env.TEST_BROWSER);
+// The line printed at the end. main() updates it when the tests start.
+let browserLine = browser.run
+  ? "browser checks: did NOT run (the run stopped before the tests)"
+  : `browser checks: SKIPPED (${browser.reason})`;
+// Only for the test processes: what Playwright needs to be found.
+const browserEnv = Object.fromEntries(
+  [
+    ["NODE_PATH", process.env.NODE_PATH],
+    ["PLAYWRIGHT_BROWSERS_PATH", process.env.PLAYWRIGHT_BROWSERS_PATH],
+  ].filter(([, v]) => v)
+);
 const testEnv = {
   ...baseEnv,
+  ...browserEnv,
+  TEST_BROWSER: browser.run ? "1" : "0",
+  TEST_BROWSER_NOTE: browser.reason,
   TEST_DATABASE_URL: cfg.databaseUrl,
   TEST_APP_URL: cfg.appUrl,
   TEST_NOCRON_URL: cfg.noCronUrl,
@@ -247,6 +272,11 @@ function scanLogsForLeaks() {
 }
 
 async function main() {
+  if (browser.required && !browser.run) {
+    browserLine = `browser checks: could NOT run (${browser.reason})`;
+    throw new Error(`TEST_BROWSER=1 but the browser checks cannot run: ${browser.reason}`);
+  }
+  log(browser.run ? `browser checks: will run (${browser.reason})` : `browser checks: will be skipped (${browser.reason})`);
   await prepareDatabase();
 
   const preFiles = readdirSync(path.join(here, "pre-lockdown"))
@@ -298,6 +328,11 @@ async function main() {
         .filter((f) => /^t\d\d.*\.test\.mjs$/.test(f))
         .sort()
         .map((f) => path.join("tests", f));
+  if (browser.run) {
+    browserLine = files.some((f) => /t33-csp-browser/.test(f))
+      ? `browser checks: RAN in t33 (${browser.reason}); their results are above`
+      : "browser checks: did NOT run (t33 is not in TEST_FILES)";
+  }
   const status = await runNode(
     ["--test", "--test-concurrency=1", "--test-timeout=600000", ...files],
     testEnv,
@@ -316,5 +351,6 @@ try {
   await teardown();
 }
 if (!scanLogsForLeaks()) code = 1;
+log(browserLine);
 log(code === 0 ? "ALL PASSED" : "FAILURES (see above)");
 process.exit(code);
