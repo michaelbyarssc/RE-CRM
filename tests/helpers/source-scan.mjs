@@ -1,5 +1,5 @@
 // Reads the app's source files with the TypeScript parser, for tests that
-// check how the screens are written (t26, t27).
+// check how the screens are written (t27).
 //
 // The parser is the `typescript` package the repo already uses to build, so
 // it reads every .ts and .tsx file exactly as the build does: strings,
@@ -24,7 +24,7 @@ export function parseSource(fileName, text) {
  * parseDiagnostics is not in TypeScript's public typings, so it is guarded
  * below. The public alternative, ts.transpileModule(text, { reportDiagnostics:
  * true, ... }), gave the same errors on all 74 files of app/, components/ and
- * lib/ (and "line 2" for the broken sample in t26), but took 0.6 to 1.6 s for
+ * lib/ (and "line 2" for the broken sample in t27), but took 0.6 to 1.6 s for
  * those files against 0.05 to 0.14 s here (measured 2026-11-20, typescript
  * 5.9.3), because it parses and prints each file again. So this keeps the
  * parser's own list.

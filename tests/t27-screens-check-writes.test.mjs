@@ -1,4 +1,4 @@
-// T26. Every screen checks the server's answer after a save, change or delete
+// T27. Every screen checks the server's answer after a save, change or delete
 // (QA pass of 2026-11-19: several screens showed success after a refused write).
 //
 // This test reads the source files; it needs no running app. It parses every
@@ -280,7 +280,7 @@ export function Reminder({ count }: { count: number }) {
   return <div><p>Don't forget (really) {count}</p><button onClick={async () => { await fetch("/api/notes", { method: "POST" }); }}>Save</button></div>;
 }`;
 
-test("T26 the scanner reports a write sent with plain fetch() (rule W1) and nothing else", () => {
+test("T27 the scanner reports a write sent with plain fetch() (rule W1) and nothing else", () => {
   const { findings } = scanSource(SAMPLE_W1);
   assert.deepEqual(
     findings.map((f) => `${f.rule} line ${f.line}`),
@@ -291,13 +291,13 @@ test("T26 the scanner reports a write sent with plain fetch() (rule W1) and noth
   assert.match(findings[1].detail, /PATCH/);
 });
 
-test("T26 the scanner reports an apiFetch() answer that is not kept in a const (rule W2)", () => {
+test("T27 the scanner reports an apiFetch() answer that is not kept in a const (rule W2)", () => {
   const { findings, apiFetchCalls } = scanSource(SAMPLE_W2);
   assert.equal(apiFetchCalls, 2);
   assert.deepEqual(findings.map((f) => `${f.rule} line ${f.line}`), ["W2 line 3", "W2 line 4"], JSON.stringify(findings));
 });
 
-test("T26 the scanner reports an apiFetch() answer that is not checked with .ok (rule W3)", () => {
+test("T27 the scanner reports an apiFetch() answer that is not checked with .ok (rule W3)", () => {
   const { findings } = scanSource(SAMPLE_W3);
   assert.deepEqual(
     findings.map((f) => `${f.rule} line ${f.line}`),
@@ -307,23 +307,23 @@ test("T26 the scanner reports an apiFetch() answer that is not checked with .ok 
   assert.match(findings[1].detail, /read before/);
 });
 
-test("T26 the scanner finds nothing wrong in a clean sample", () => {
+test("T27 the scanner finds nothing wrong in a clean sample", () => {
   const { findings, apiFetchCalls } = scanSource(SAMPLE_CLEAN);
   assert.deepEqual(findings, []);
   assert.equal(apiFetchCalls, 1);
 });
 
-test("T26 an apostrophe and brackets in JSX text do not hide a write on the same line", () => {
+test("T27 an apostrophe and brackets in JSX text do not hide a write on the same line", () => {
   const { findings } = scanSource(SAMPLE_JSX_TEXT);
   assert.deepEqual(findings.map((f) => `${f.rule} line ${f.line} ${f.detail}`), ["W1 line 3 it sends POST"]);
 });
 
-test("T26 the scanner reports a file it cannot parse instead of passing it", () => {
+test("T27 the scanner reports a file it cannot parse instead of passing it", () => {
   const { findings } = scanSource("function broken() {\n  const a = ;\n}");
   assert.deepEqual(findings.map((f) => `${f.rule} line ${f.line}`), ["READ line 2"], JSON.stringify(findings));
 });
 
-test("T26 a failure message names the file, the line and the rule, and says how to fix it", () => {
+test("T27 a failure message names the file, the line and the rule, and says how to fix it", () => {
   const msg = failureMessage("W1", [explain("app/x/page.tsx", { rule: "W1", line: 12, detail: "it sends POST" })]);
   assert.match(msg, /\napp\/x\/page\.tsx line 12, rule W1: it sends POST$/);
   for (const rule of Object.keys(PLAIN)) assert.match(failureMessage(rule, []), /Fix: /, rule);
@@ -343,7 +343,7 @@ function report(rules) {
   return lines;
 }
 
-test("T26 the screen files were found and the parser reads every one of them without syntax errors", () => {
+test("T27 the screen files were found and the parser reads every one of them without syntax errors", () => {
   assert.ok(files.length > 40, `found only ${files.length} files under app/ and components/`);
   const unread = report(["READ"]);
   assert.ok(unread.length === 0, failureMessage("READ", unread));
@@ -364,7 +364,7 @@ function exportsName(sf, name) {
   });
 }
 
-test("T26 lib/api-fetch.ts exists and exports apiFetch and apiErrorMessage", () => {
+test("T27 lib/api-fetch.ts exists and exports apiFetch and apiErrorMessage", () => {
   assert.ok(
     existsSync(path.join(root, "lib", "api-fetch.ts")),
     "lib/api-fetch.ts is missing. Fix: add the shared helper that every screen uses to send writes and word their error messages."
@@ -375,22 +375,22 @@ test("T26 lib/api-fetch.ts exists and exports apiFetch and apiErrorMessage", () 
   }
 });
 
-test("T26 rule W1: no screen sends a save, change or delete with plain fetch()", () => {
+test("T27 rule W1: no screen sends a save, change or delete with plain fetch()", () => {
   const lines = report(["W1"]);
   assert.ok(lines.length === 0, failureMessage("W1", lines));
 });
 
-test("T26 rule W2: every apiFetch() answer is kept as `const <name> = await apiFetch(`", () => {
+test("T27 rule W2: every apiFetch() answer is kept as `const <name> = await apiFetch(`", () => {
   const lines = report(["W2"]);
   assert.ok(lines.length === 0, failureMessage("W2", lines));
 });
 
-test("T26 rule W3: every apiFetch() answer is tested with .ok before the screen moves on", () => {
+test("T27 rule W3: every apiFetch() answer is tested with .ok before the screen moves on", () => {
   const lines = report(["W3"]);
   assert.ok(lines.length === 0, failureMessage("W3", lines));
 });
 
-test("T26 the scan sees more than 20 apiFetch() calls, so it cannot pass by scanning nothing", () => {
+test("T27 the scan sees more than 20 apiFetch() calls, so it cannot pass by scanning nothing", () => {
   const total = results.reduce((n, r) => n + r.apiFetchCalls, 0);
   assert.ok(
     total > 20,

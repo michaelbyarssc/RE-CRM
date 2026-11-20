@@ -135,7 +135,7 @@ The rules for new code:
 
 - A screen sends a change with `apiFetch()` from `lib/api-fetch.ts`, written as `const res = await apiFetch(...)`, and tests `res.ok` before it shows success, closes a dialog or clears a form. `apiErrorMessage()` in the same file words the message from the status and from the server's own text.
 - A button that opens a dialog or a menu goes into the trigger's `render` prop: `<DialogTrigger render={<Button />}>Label</DialogTrigger>`. Never write a `<Button>` inside a trigger.
-- Two tests keep both rules. `tests/t26-screens-check-writes.test.mjs` reads every screen file and fails when a change is sent without checking the answer. `tests/t27-no-button-in-button.test.mjs` fails when a screen has a button inside a button.
+- Two tests keep both rules. `tests/t27-screens-check-writes.test.mjs` reads every screen file and fails when a change is sent without checking the answer. `tests/t26-no-nested-buttons.test.mjs` fails when a page has a button inside a button.
 
 How it was checked: every action was run in a real browser against the old code and the new code, with a refusal forced for each one, and then tried again. The browser scripts are not in the repository, because Playwright is not a dependency.
 

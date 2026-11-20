@@ -72,7 +72,9 @@ interface EventFormDialogProps {
     leadId: number | null;
     buyerId: number | null;
   } | null;
-  /** The element that opens the dialog (for example a Button). It is rendered as the trigger itself, never inside another button. */
+  // One element that draws a native <button>, usually our <Button>. It becomes
+  // the trigger button itself (not wrapped in another <button>, which browsers
+  // do not allow).
   trigger?: React.ReactElement;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;

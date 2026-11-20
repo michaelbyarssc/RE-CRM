@@ -343,12 +343,10 @@ export default function LeadsPage() {
             ))}
             {availableTags.length > 0 && (
               <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={
-                    <button className="inline-flex items-center justify-center w-5 h-5 rounded border border-dashed border-muted-foreground/40 text-muted-foreground hover:border-primary hover:text-primary transition-colors" />
-                  }
-                >
-                  <Plus className="h-3 w-3" />
+                <DropdownMenuTrigger>
+                  <span className="inline-flex items-center justify-center w-5 h-5 rounded border border-dashed border-muted-foreground/40 text-muted-foreground hover:border-primary hover:text-primary transition-colors">
+                    <Plus className="h-3 w-3" />
+                  </span>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start">
                   {availableTags.map((tag) => (
@@ -629,12 +627,10 @@ export default function LeadsPage() {
                       if (available.length === 0) return null;
                       return (
                         <DropdownMenu>
-                          <DropdownMenuTrigger
-                            render={
-                              <button className="inline-flex items-center justify-center w-5 h-5 rounded border border-dashed border-muted-foreground/40 text-muted-foreground hover:border-primary hover:text-primary transition-colors" />
-                            }
-                          >
-                            <Plus className="h-3 w-3" />
+                          <DropdownMenuTrigger>
+                            <span className="inline-flex items-center justify-center w-5 h-5 rounded border border-dashed border-muted-foreground/40 text-muted-foreground hover:border-primary hover:text-primary transition-colors">
+                              <Plus className="h-3 w-3" />
+                            </span>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
                             {available.map((tag) => (
