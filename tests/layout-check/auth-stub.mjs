@@ -6,9 +6,10 @@
 // Start and stop it with serve.mjs (stub-start, stub-stop). To run it in the
 // front for a look at its log: node tests/layout-check/auth-stub.mjs
 //
-// The test suite has its own, smaller stub (tests/helpers/auth-stub.mjs) that
-// only answers GET /auth/v1/user. This one also answers the calls the login
-// page makes:
+// The test suite has its own stub (tests/helpers/auth-stub.mjs). It answers
+// the login page's calls too, but only for the test users of the test
+// database. This one is separate on purpose: it knows the one user from this
+// tool's settings file, and it has a health address. It answers:
 //   POST /auth/v1/token?grant_type=password | refresh_token
 //   GET  /auth/v1/user
 //   POST /auth/v1/logout
