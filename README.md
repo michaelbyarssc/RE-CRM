@@ -179,6 +179,7 @@ Second review (round 2) and its fixes:
 - The test database guard could be pointed at a non-test database with a query string in the URL. It now refuses query strings and fragments and asks the server which database and host it is on before changing anything.
 - One settings save could store any number of keys. It now takes at most 50 keys per request with strict names (letters, digits, `_` `.` `-`, up to 100 characters).
 - One buyer zones request could run for most of an hour. Areas are de-duplicated and at most 25 are geocoded per request; the answer says how many were skipped.
+- One badly stored buyer row broke the buyers screen and the buyer zones list for that user. Saved buy criteria is now read in one place that never fails: a row that cannot be read counts as having no criteria, and the other buyers still show.
 - A request body without a declared length was read in full before the size check. Bodies are now read as a stream and refused with 413 as soon as they pass 10 MB.
 - Failed requests wrote request values (API keys, personal data) into the server log. The log now keeps a safe summary: method and path, error class, Postgres code, constraint, table and stack frames.
 - `db-make-admin` could promote the wrong profile when two profiles share an email. It now changes nothing in that case, lists the ids and accepts `--id <user id>`.
@@ -195,7 +196,6 @@ Not covered yet (deliberately left for later):
 - The lockdown file does not revoke EXECUTE on functions: the public roles could run any database function added later (there are none today).
 - Two runs of the sequence processor at the same moment can add the same note twice.
 - A NUL character in a text field gets a 500 instead of a 400.
-- One badly stored buyer row breaks the buyer zones list for that user.
 - Calendar dates that are well formed but impossible (for example February 30) are not refused.
 - No Content Security Policy.
 - Lint reports `react-hooks/set-state-in-effect` as a warning, not an error, for 12 screens that load data when they open.

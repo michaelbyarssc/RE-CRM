@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { readBuyCriteria } from "@/lib/buy-criteria.mjs";
 import {
   Dialog,
   DialogContent,
@@ -289,7 +290,7 @@ export default function BuyersPage() {
           {/* Mobile card view */}
           <div className="md:hidden space-y-3">
             {buyers.map((buyer) => {
-              const criteria = buyer.buyCriteria ? JSON.parse(buyer.buyCriteria) : null;
+              const criteria = readBuyCriteria(buyer.buyCriteria);
               return (
                 <Card key={buyer.id}>
                   <CardContent className="p-4">
@@ -365,7 +366,7 @@ export default function BuyersPage() {
               </TableHeader>
               <TableBody>
                 {buyers.map((buyer) => {
-                  const criteria = buyer.buyCriteria ? JSON.parse(buyer.buyCriteria) : null;
+                  const criteria = readBuyCriteria(buyer.buyCriteria);
                   return (
                     <TableRow key={buyer.id}>
                       <TableCell className="font-medium">{buyer.name}</TableCell>
