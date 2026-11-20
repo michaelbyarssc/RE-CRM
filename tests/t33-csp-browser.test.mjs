@@ -21,9 +21,8 @@
 // other outside request is aborted.
 //
 // A page error (an error that no code caught) on any screen fails the
-// checks, with one narrow, named exception (see KNOWN_418_SCREENS). Other
-// console errors do not fail them: the two expected kinds are named below,
-// and anything else is printed in the test output.
+// checks. Other console errors do not fail them: the one expected kind is
+// named below, and anything else is printed in the test output.
 
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -46,24 +45,11 @@ const FRAME_HOST = "http://frame-host.example.com/";
 const UNKNOWN_PAGE = "/no-such-page-t33";
 const POLICY_TEXT = /Content Security Policy|Content-Security-Policy|\bCSP\b/i;
 
-// Page errors fail the checks, with ONE narrow exception: React error 418 on
-// exactly these five screens. The cause is a button inside a button in the
-// header of each of them. The fix is in pull request 4. DELETE this
-// exception (this list and isKnown418) once that fix is on main: after
-// that, no page error at all is allowed. A 418 on any other screen, and any
-// other page error anywhere, already fails the checks.
-const KNOWN_418_SCREENS = ["/leads", "/pipeline", "/buyers", "/calendar", "/sequences"];
-const isKnown418 = (e) => /Minified React error #418\b/.test(e.text) && KNOWN_418_SCREENS.includes(e.path);
-
-// Console errors that are not page errors do not fail the checks. Two kinds
-// existed before this work and are expected:
-// 1. The browser's own line for a page that answers 404: the unknown address.
-// 2. After sign-out, calls that links had queued to fetch pages ahead of
-//    time are sent on to /login and answer 404 (addresses "/login?_rsc=...").
-// Every other console error is printed in the test output.
+// Console errors that are not page errors do not fail the checks. One kind
+// is expected: the browser's own line for a page that answers 404, here the
+// unknown address. Every other console error is printed in the test output.
 const RESOURCE_404 = "Failed to load resource: the server responded with a status of 404 (Not Found)";
-const isExpectedConsoleError = (c) =>
-  c.text === RESOURCE_404 && (c.url === APP + UNKNOWN_PAGE || c.url.startsWith(APP + "/login?_rsc="));
+const isExpectedConsoleError = (c) => c.text === RESOURCE_404 && c.url === APP + UNKNOWN_PAGE;
 // A 1x1 PNG for map tiles.
 const TILE = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
@@ -176,12 +162,9 @@ async function newContext({ signedIn = false } = {}) {
   return { context, seen };
 }
 
-/** Page errors since index `from` that are not the known React error 418, as readable text. */
+/** Page errors since index `from`, as readable text. Every page error fails the checks. */
 function pageErrorProblems(seen, from = 0) {
-  return seen.pageErrors
-    .slice(from)
-    .filter((e) => !isKnown418(e))
-    .map((e) => `page error on ${e.path}: ${e.text}`);
+  return seen.pageErrors.slice(from).map((e) => `page error on ${e.path}: ${e.text}`);
 }
 
 /** What fails a screen check since `mark`: violations, policy console lines and page errors. */
@@ -194,18 +177,9 @@ function newProblems(seen, mark) {
 }
 const markOf = (seen) => ({ v: seen.violations.length, c: seen.policyConsole.length, p: seen.pageErrors.length });
 
-/**
- * Print the page error count and every console error that is not one of the
- * two expected kinds. `visitedKnownScreens`: this check opened the five
- * screens of the 418 exception.
- */
-function printNotes(t, seen, { visitedKnownScreens = false } = {}) {
-  const known = seen.pageErrors.filter(isKnown418);
-  const where = [...new Set(known.map((e) => e.path))].join(", ") || "none";
-  t.diagnostic(`page errors: ${seen.pageErrors.length}, of them the known React error 418: ${known.length} (on ${where})`);
-  if (visitedKnownScreens && known.length === 0) {
-    t.diagnostic("the known React error 418 did not show up: if the fix is on main now, delete the exception in this file");
-  }
+/** Print the page error count and every console error that is not the expected kind. */
+function printNotes(t, seen) {
+  t.diagnostic(`page errors: ${seen.pageErrors.length}`);
   const expected = seen.consoleErrors.filter(isExpectedConsoleError);
   t.diagnostic(`console errors: ${seen.consoleErrors.length}, of them expected 404 lines: ${expected.length}`);
   for (const c of seen.consoleErrors.filter((c) => !isExpectedConsoleError(c))) {
@@ -315,7 +289,7 @@ check("T33 sign-in, every screen and sign-out raise no policy violation and no p
     // Page errors that arrived late, after the last step above.
     await page.waitForTimeout(300);
     assert.deepEqual(pageErrorProblems(seen), []);
-    printNotes(t, seen, { visitedKnownScreens: true });
+    printNotes(t, seen);
   } finally {
     await context.close();
   }

@@ -231,7 +231,6 @@ Not covered yet (deliberately left for later):
 - The https header (HSTS) has no `includeSubDomains` and no `preload`. Both affect every subdomain of the site's domain, so that is an owner decision.
 - The built-in 404 page on the few addresses the proxy skips (`/robots.txt`, `/sitemap.xml`, and an unknown address that only starts with `/api`, such as `/apiary`) gets the fixed headers but not the page policy.
 - The app has no error page of its own. When a page fails on the server, the visitor gets the plain Next.js page "This page couldn't load" with a Reload button, and it works under the page policy. Next.js also builds one copy of that page ahead of time, with scripts that have no nonce: the policy blocks those scripts, but that copy still shows its message and its Reload button still works.
-- Five screens (leads, pipeline, buyers, calendar, sequences) still log React error 418 in the browser console, until the fix for a button inside a button from pull request 4 is merged.
 - Lint reports `react-hooks/set-state-in-effect` as a warning, not an error, for 12 screens that load data when they open.
 - An admin who is impersonating a user can still replace or clear that user's saved keys (they cannot see them).
 - Saved values from before the encryption change are still read as plain text. Once the one-off script has run on the live database, a later change can remove that fallback and add a database check that tokens are always encrypted.
