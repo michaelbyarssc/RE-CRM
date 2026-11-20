@@ -271,9 +271,9 @@ export default function LeadsPage() {
             {availableTags.length > 0 && (
               <DropdownMenu>
                 <DropdownMenuTrigger>
-                  <button className="inline-flex items-center justify-center w-5 h-5 rounded border border-dashed border-muted-foreground/40 text-muted-foreground hover:border-primary hover:text-primary transition-colors">
+                  <span className="inline-flex items-center justify-center w-5 h-5 rounded border border-dashed border-muted-foreground/40 text-muted-foreground hover:border-primary hover:text-primary transition-colors">
                     <Plus className="h-3 w-3" />
-                  </button>
+                  </span>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start">
                   {availableTags.map((tag) => (
@@ -384,10 +384,8 @@ export default function LeadsPage() {
               {selectedIds.length} selected
             </span>
             <DropdownMenu>
-              <DropdownMenuTrigger>
-                <Button variant="outline" size="sm">
-                  Bulk Actions
-                </Button>
+              <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>
+                Bulk Actions
               </DropdownMenuTrigger>
               <DropdownMenuContent>
                 <DropdownMenuSub>
@@ -539,9 +537,9 @@ export default function LeadsPage() {
                       return (
                         <DropdownMenu>
                           <DropdownMenuTrigger>
-                            <button className="inline-flex items-center justify-center w-5 h-5 rounded border border-dashed border-muted-foreground/40 text-muted-foreground hover:border-primary hover:text-primary transition-colors">
+                            <span className="inline-flex items-center justify-center w-5 h-5 rounded border border-dashed border-muted-foreground/40 text-muted-foreground hover:border-primary hover:text-primary transition-colors">
                               <Plus className="h-3 w-3" />
-                            </button>
+                            </span>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
                             {available.map((tag) => (

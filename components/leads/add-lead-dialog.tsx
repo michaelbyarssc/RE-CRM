@@ -87,11 +87,9 @@ export function AddLeadDialog({ onLeadCreated }: AddLeadDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger>
-        <Button>
-          <Plus className="h-4 w-4 mr-2" />
-          Add Lead
-        </Button>
+      <DialogTrigger render={<Button />}>
+        <Plus className="h-4 w-4 mr-2" />
+        Add Lead
       </DialogTrigger>
       <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
