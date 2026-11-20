@@ -1,15 +1,16 @@
 // T31. Every page answer carries the page security policy (CSP) with a new
 // nonce, and every script tag in the page carries that nonce.
 //
-// The policy is written out by hand. Only the header name comes from
-// lib/security/csp.mjs, because the rollout switches it from report-only
-// to enforcing in one place.
+// The policy and the header names are written out by hand. The policy is
+// enforcing: pages must not also send the report-only header.
 
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { api } from "./helpers/http.mjs";
 import { reseed, closeDb, USERS } from "./helpers/db.mjs";
-import { POLICY_HEADER, OTHER_POLICY_HEADER } from "../lib/security/csp.mjs";
+
+const POLICY_HEADER = "content-security-policy";
+const REPORT_ONLY_HEADER = "content-security-policy-report-only";
 
 const SUPABASE_ORIGIN = new URL(process.env.TEST_AUTH_URL).origin;
 
@@ -41,7 +42,7 @@ after(closeDb);
 function readPolicy(res, label) {
   const policy = res.headers.get(POLICY_HEADER);
   assert.ok(policy, `${label}: no ${POLICY_HEADER} header`);
-  assert.equal(res.headers.get(OTHER_POLICY_HEADER), null, `${label}: also sent ${OTHER_POLICY_HEADER}`);
+  assert.equal(res.headers.get(REPORT_ONLY_HEADER), null, `${label}: also sent ${REPORT_ONLY_HEADER}`);
   const nonces = [...policy.matchAll(/'nonce-([^']*)'/g)].map((m) => m[1]);
   assert.equal(nonces.length, 1, `${label}: expected one nonce in ${policy}`);
   const nonce = nonces[0];
@@ -59,7 +60,7 @@ function assertPolicy(res, label) {
   for (const bad of ["'unsafe-inline'", "'unsafe-eval'", "*", "data:", "blob:", "http:", "https:"]) {
     assert.ok(!scriptSrc.includes(bad), `${label}: ${bad} in script-src`);
   }
-  // Plain base64 of at least 16 bytes (128 bits).
+  // Plain base64 of at least 16 bytes (128 bits); the app uses 18.
   assert.match(nonce, /^[A-Za-z0-9+/]+={0,2}$/, `${label}: nonce ${nonce}`);
   assert.ok(Buffer.from(nonce, "base64").length >= 16, `${label}: nonce too short`);
   return nonce;

@@ -10,6 +10,7 @@ import {
   buildPagePolicy,
   makeNonce,
   supabaseOrigin,
+  ENFORCE,
   POLICY_HEADER,
   OTHER_POLICY_HEADER,
 } from "../lib/security/csp.mjs";
@@ -42,11 +43,12 @@ function directives(policy) {
   return map;
 }
 
-test("T30 the header names: report-only and enforcing are the two names, never the same", () => {
-  const names = ["Content-Security-Policy", "Content-Security-Policy-Report-Only"];
-  assert.ok(names.includes(POLICY_HEADER), POLICY_HEADER);
-  assert.ok(names.includes(OTHER_POLICY_HEADER), OTHER_POLICY_HEADER);
-  assert.notEqual(POLICY_HEADER, OTHER_POLICY_HEADER);
+// The policy is enforcing. Going back to report-only must be a deliberate
+// change, and this test is meant to fail when someone makes it.
+test("T30 the policy is enforcing: the header is Content-Security-Policy", () => {
+  assert.equal(ENFORCE, true);
+  assert.equal(POLICY_HEADER, "Content-Security-Policy");
+  assert.equal(OTHER_POLICY_HEADER, "Content-Security-Policy-Report-Only");
 });
 
 test("T30 the production policy is exactly the expected list", () => {
@@ -171,15 +173,13 @@ test("T30 a nonce that is not plain base64 is refused", () => {
   assert.throws(() => buildPagePolicy(), TypeError);
 });
 
-test("T30 makeNonce gives plain base64 of a random UUID, new every time", () => {
+test("T30 makeNonce gives plain base64 of 18 random bytes, new every time", () => {
   const seen = new Set();
   for (let i = 0; i < 1000; i++) {
     const nonce = makeNonce();
     assert.match(nonce, /^[A-Za-z0-9+/]+={0,2}$/);
-    const decoded = Buffer.from(nonce, "base64").toString("utf8");
-    // 36 bytes of input (more than 128 bits), of which 122 bits are random (UUID version 4).
-    assert.equal(Buffer.from(nonce, "base64").length, 36);
-    assert.match(decoded, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    // 18 bytes is 144 random bits (the CSP standard asks for at least 128).
+    assert.equal(Buffer.from(nonce, "base64").length, 18);
     seen.add(nonce);
     // Every nonce it makes is accepted by the builder.
     buildPagePolicy({ nonce });
