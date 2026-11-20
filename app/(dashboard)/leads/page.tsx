@@ -153,13 +153,12 @@ function LeadTagChips({
           {tags.slice(-1).map(chip)}
           {available.length > 0 && (
             <DropdownMenu>
-              <DropdownMenuTrigger>
-                <button
-                  aria-label="Add tag"
-                  className="inline-flex items-center justify-center w-5 h-5 rounded border border-dashed border-muted-foreground/40 text-muted-foreground hover:border-primary hover:text-primary transition-colors"
-                >
+              {/* The trigger is the real button, so the "+" inside it is a span:
+                  a button inside a button breaks the page's HTML. */}
+              <DropdownMenuTrigger aria-label="Add tag">
+                <span className="inline-flex items-center justify-center w-5 h-5 rounded border border-dashed border-muted-foreground/40 text-muted-foreground hover:border-primary hover:text-primary transition-colors">
                   <Plus className="h-3 w-3" />
-                </button>
+                </span>
               </DropdownMenuTrigger>
               <DropdownMenuContent align={menuAlign}>
                 {available.map((tag) => (
@@ -451,10 +450,8 @@ export default function LeadsPage() {
               {selectedIds.length} selected
             </span>
             <DropdownMenu>
-              <DropdownMenuTrigger>
-                <Button variant="outline" size="sm">
-                  Bulk Actions
-                </Button>
+              <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>
+                Bulk Actions
               </DropdownMenuTrigger>
               <DropdownMenuContent>
                 <DropdownMenuSub>

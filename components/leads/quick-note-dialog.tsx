@@ -93,10 +93,13 @@ export function QuickNoteDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger>
-        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Notes">
-          <StickyNote className="h-3.5 w-3.5 text-muted-foreground" />
-        </Button>
+      <DialogTrigger
+        render={
+          // aria-expanded:bg-transparent keeps the icon plain while its notes dialog is open, as before.
+          <Button variant="ghost" size="sm" className="h-7 w-7 p-0 aria-expanded:bg-transparent" title="Notes" />
+        }
+      >
+        <StickyNote className="h-3.5 w-3.5 text-muted-foreground" />
       </DialogTrigger>
       <DialogContent className="max-w-lg">
         <DialogHeader>

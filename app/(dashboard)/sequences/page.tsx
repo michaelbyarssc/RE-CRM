@@ -81,11 +81,9 @@ export default function SequencesPage() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">Follow-up Sequences</h1>
         <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger>
-            <Button>
-              <Plus className="h-4 w-4 mr-2" />
-              New Sequence
-            </Button>
+          <DialogTrigger render={<Button />}>
+            <Plus className="h-4 w-4 mr-2" />
+            New Sequence
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
