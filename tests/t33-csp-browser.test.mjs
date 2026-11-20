@@ -32,6 +32,7 @@ import { browserDecision, launchBrowser } from "./helpers/browser.mjs";
 import { BROWSER_PASSWORD } from "./helpers/auth-stub.mjs";
 import { reseed, closeDb, db, USERS } from "./helpers/db.mjs";
 import { sessionCookie } from "./helpers/http.mjs";
+import { pageAddresses, PUBLIC_PAGES } from "./helpers/pages.mjs";
 
 const decision = browserDecision();
 const skip = decision.run ? false : `browser checks skipped by the runner: ${decision.reason}`;
@@ -263,27 +264,10 @@ check("T33 sign-in, every screen and sign-out raise no policy violation and no p
     });
 
     await t.test("b. every page route signed in", async () => {
-      const paths = [
-        "/",
-        "/leads",
-        `/leads/${ids.aLead}`,
-        "/leads/import",
-        "/pipeline",
-        "/map",
-        "/skip-trace",
-        "/dialer",
-        "/buyers",
-        "/calendar",
-        "/sequences",
-        `/sequences/${ids.aSeq}`,
-        "/settings",
-        "/knowledge-base",
-        "/welcome",
-        "/privacy",
-        "/terms",
-        "/login", // signed in, this goes on to the dashboard
-        UNKNOWN_PAGE,
-      ];
+      // Every page route of the build (helpers/pages.mjs fails when a page
+      // is not listed there), then the unknown address. Signed in, /login
+      // goes on to the dashboard.
+      const paths = [...pageAddresses(ids).map((p) => p.path), UNKNOWN_PAGE];
       const problems = [];
       for (const path of paths) {
         const mark = markOf(seen);
@@ -342,7 +326,7 @@ check("T33 b. signed-out pages and the signed-out 404 redirect raise no policy v
   const page = await context.newPage();
   try {
     const problems = [];
-    for (const path of ["/login", "/privacy", "/terms", UNKNOWN_PAGE]) {
+    for (const path of [...PUBLIC_PAGES, UNKNOWN_PAGE]) {
       const mark = markOf(seen);
       await page.goto(APP + path, { waitUntil: "load" });
       await settle(page);

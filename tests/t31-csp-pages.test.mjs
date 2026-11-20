@@ -3,11 +3,18 @@
 //
 // The policy and the header names are written out by hand. The policy is
 // enforcing: pages must not also send the report-only header.
+//
+// The pages come from the build through helpers/pages.mjs, so a new page
+// that nobody listed there fails this file.
 
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { api } from "./helpers/http.mjs";
 import { reseed, closeDb, USERS } from "./helpers/db.mjs";
+import { builtPageRoutes, pageAddresses, PUBLIC_PAGES } from "./helpers/pages.mjs";
 
 const POLICY_HEADER = "content-security-policy";
 const REPORT_ONLY_HEADER = "content-security-policy-report-only";
@@ -84,71 +91,104 @@ function assertNotSharedCacheable(res, label) {
   assert.ok(!/\bpublic\b/.test(cc), `${label}: cache-control ${cc}`);
 }
 
-function pagePaths() {
-  return [
-    "/",
-    "/leads",
-    `/leads/${ids.aLead}`,
-    "/leads/import",
-    "/pipeline",
-    "/map",
-    "/skip-trace",
-    "/dialer",
-    "/buyers",
-    "/calendar",
-    "/sequences",
-    `/sequences/${ids.aSeq}`,
-    "/settings",
-    "/knowledge-base",
-    "/welcome",
-    "/privacy",
-    "/terms",
-  ];
+const UNKNOWN_PAGE = "/no-such-page-t31";
+
+/** A copy of the build's route list in a temporary folder, changed by `change`. Returns that folder. */
+function fakeBuild(change) {
+  const real = path.join(process.env.TEST_REPO_ROOT, ".next", "app-path-routes-manifest.json");
+  const manifest = JSON.parse(readFileSync(real, "utf8"));
+  change(manifest);
+  const root = mkdtempSync(path.join(os.tmpdir(), "t31-routes-"));
+  mkdirSync(path.join(root, ".next"));
+  writeFileSync(path.join(root, ".next", "app-path-routes-manifest.json"), JSON.stringify(manifest));
+  return root;
 }
 
-test("T31 signed-out pages carry the policy, and every script tag its nonce", async () => {
-  for (const path of ["/login", "/privacy", "/terms"]) {
-    const res = await api(path);
-    assert.equal(res.status, 200, `${path}: ${res.status}`);
-    const nonce = assertPolicy(res, path);
-    assertScriptsCarryNonce(res, nonce, path);
-    assertNotSharedCacheable(res, path);
+test("T31 the page list of the tests is exactly the page routes of the build", () => {
+  // pageAddresses() throws when a page route of the build has no entry in
+  // helpers/pages.mjs, or when an entry is not a page route of the build.
+  const pages = pageAddresses(ids);
+  const routes = pages.map((p) => p.route);
+  assert.deepEqual(routes, builtPageRoutes());
+  // The build was really read: known pages are in the list, and no API
+  // route, no favicon and no built-in not-found or error route is.
+  for (const known of ["/", "/leads/[id]", ...PUBLIC_PAGES]) {
+    assert.ok(routes.includes(known), `${known} is not among the page routes of the build`);
+  }
+  assert.deepEqual(routes.filter((r) => r.startsWith("/api") || r.startsWith("/_") || r.includes("favicon")), []);
+  // A route with an id maps to one real address.
+  assert.ok(pages.every((p) => !/[[\]]/.test(p.path)), JSON.stringify(pages));
+});
+
+test("T31 a page that nobody listed, or a listed page that is gone, fails the page list", () => {
+  const withNewPage = fakeBuild((m) => {
+    m["/(dashboard)/zz-new-page/page"] = "/zz-new-page";
+  });
+  const withoutWelcome = fakeBuild((m) => {
+    delete m["/(dashboard)/welcome/page"];
+  });
+  try {
+    assert.throws(() => pageAddresses(ids, withNewPage), /not listed there: \/zz-new-page\./);
+    assert.throws(() => pageAddresses(ids, withoutWelcome), /not a page route of the build: \/welcome\./);
+    // A new API route or built-in route is not a page and changes nothing.
+    const withNewApi = fakeBuild((m) => {
+      m["/api/zz-new/route"] = "/api/zz-new";
+      m["/_zz-builtin/page"] = "/_zz-builtin";
+    });
+    try {
+      assert.deepEqual(builtPageRoutes(withNewApi), builtPageRoutes());
+    } finally {
+      rmSync(withNewApi, { recursive: true, force: true });
+    }
+  } finally {
+    rmSync(withNewPage, { recursive: true, force: true });
+    rmSync(withoutWelcome, { recursive: true, force: true });
   }
 });
 
-test("T31 every signed-in page carries the policy, and every script tag its nonce", async () => {
-  const paths = pagePaths();
-  assert.equal(paths.length + 1, 18, "17 pages here plus /login: the 18 page routes");
-  for (const path of paths) {
-    const res = await api(path, { user: USERS.A });
-    assert.equal(res.status, 200, `${path}: ${res.status} ${res.location ?? ""}`);
-    const nonce = assertPolicy(res, path);
-    assertScriptsCarryNonce(res, nonce, path);
-    assertNotSharedCacheable(res, path);
+test("T31 signed in: every page route carries the policy, and every script tag its nonce", async () => {
+  for (const { route, path: address } of pageAddresses(ids)) {
+    const res = await api(address, { user: USERS.A });
+    if (route === "/login") {
+      // A signed-in user is sent on to the dashboard. The redirect carries the policy too.
+      assert.ok(res.status >= 300 && res.status < 400, `${address}: ${res.status}`);
+      assert.equal(new URL(res.location, "http://x").pathname, "/");
+      assertPolicy(res, `${address} signed in`);
+      continue;
+    }
+    assert.equal(res.status, 200, `${address}: ${res.status} ${res.location ?? ""}`);
+    const nonce = assertPolicy(res, address);
+    assertScriptsCarryNonce(res, nonce, address);
+    assertNotSharedCacheable(res, address);
   }
 });
 
-test("T31 /login signed in (a redirect to the dashboard) carries the policy", async () => {
-  const res = await api("/login", { user: USERS.A });
-  assert.ok(res.status >= 300 && res.status < 400, `${res.status}`);
-  assertPolicy(res, "/login signed in");
+test("T31 signed out: public pages carry the policy and the nonce, every other page is sent on to /login with the policy", async () => {
+  for (const { route, path: address } of pageAddresses(ids)) {
+    const res = await api(address);
+    if (PUBLIC_PAGES.includes(route)) {
+      assert.equal(res.status, 200, `${address}: ${res.status}`);
+      const nonce = assertPolicy(res, address);
+      assertScriptsCarryNonce(res, nonce, address);
+      assertNotSharedCacheable(res, address);
+    } else {
+      assert.ok(res.status >= 300 && res.status < 400, `${address}: ${res.status}`);
+      assert.equal(new URL(res.location, "http://x").pathname, "/login", address);
+      assertPolicy(res, `${address} signed out`);
+    }
+  }
 });
 
-test("T31 an unknown page (404) carries the policy, and its scripts the nonce", async () => {
-  const res = await api("/no-such-page-t31", { user: USERS.A });
+test("T31 an unknown page: 404 with the policy and the nonce signed in, sent on to /login with the policy signed out", async () => {
+  const res = await api(UNKNOWN_PAGE, { user: USERS.A });
   assert.equal(res.status, 404);
   const nonce = assertPolicy(res, "404");
   assertScriptsCarryNonce(res, nonce, "404");
   assertNotSharedCacheable(res, "404");
-});
-
-test("T31 the signed-out redirect to /login carries the policy", async () => {
-  for (const path of ["/", "/map", "/no-such-page-t31"]) {
-    const res = await api(path);
-    assert.ok(res.status >= 300 && res.status < 400, `${path}: ${res.status}`);
-    assert.equal(new URL(res.location, "http://x").pathname, "/login");
-    assertPolicy(res, `${path} signed out`);
-  }
+  const signedOut = await api(UNKNOWN_PAGE);
+  assert.ok(signedOut.status >= 300 && signedOut.status < 400, `${signedOut.status}`);
+  assert.equal(new URL(signedOut.location, "http://x").pathname, "/login");
+  assertPolicy(signedOut, "unknown page signed out");
 });
 
 test("T31 the nonce is new on every request for the same page", async () => {
