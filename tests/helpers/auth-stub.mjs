@@ -74,27 +74,54 @@ function sessionFor(user) {
   };
 }
 
+/**
+ * The JSON body of a request as a plain object. Anything else gives an empty
+ * object: no body, text that is not JSON, and JSON that is not an object
+ * (null, a list, a number, a text).
+ */
 function readJson(req) {
   return new Promise((resolve) => {
     let raw = "";
+    const done = (value) => resolve(value !== null && typeof value === "object" && !Array.isArray(value) ? value : {});
     req.on("data", (d) => {
       raw += d;
       if (raw.length > 65536) req.destroy();
     });
     req.on("end", () => {
       try {
-        resolve(JSON.parse(raw || "{}"));
+        done(JSON.parse(raw || "{}"));
       } catch {
-        resolve({});
+        done({});
       }
     });
-    req.on("error", () => resolve({}));
+    req.on("error", () => done({}));
+    req.on("close", () => done({}));
   });
+}
+
+/**
+ * Wraps an async request handler. An error it throws becomes a 500 answer.
+ * Without this, one unexpected error in the stub would stop the whole test
+ * runner, because the stub lives in the runner's process.
+ */
+export function answer500OnError(handler) {
+  return (req, res) => {
+    Promise.resolve()
+      .then(() => handler(req, res))
+      .catch(() => {
+        try {
+          if (!res.headersSent) res.writeHead(500, { "content-type": "application/json" });
+          res.end(JSON.stringify({ code: 500, msg: "error in the test stub" }));
+        } catch {
+          // the connection is gone
+        }
+      });
+  };
 }
 
 export function startAuthStub(port) {
   const calls = [];
-  const server = http.createServer(async (req, res) => {
+  const handler = async (req, res) => {
     const url = new URL(req.url, `http://127.0.0.1:${port}`);
     calls.push({ method: req.method, path: url.pathname });
     // The browser calls this origin from the app's origin (cross-origin).
@@ -146,7 +173,8 @@ export function startAuthStub(port) {
       return res.end();
     }
     send(404, { code: 404, msg: "not handled by the test stub" });
-  });
+  };
+  const server = http.createServer(answer500OnError(handler));
   return new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(port, "127.0.0.1", () => resolve({ server, calls }));
