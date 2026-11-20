@@ -241,7 +241,7 @@ export default function LeadsPage() {
           );
           return Object.keys(kept).length === Object.keys(prev).length ? prev : kept;
         });
-        // The database driver sends the count as text ("60"), so numeric text is read as a number.
+        // The server sends a number (since 2026-11-20). Numeric text is still read as a number, as a safety net.
         // Anything else (missing, null, not a number) falls back to the leads on this page.
         const count = typeof data.total === "string" && data.total.trim() !== "" ? Number(data.total) : data.total;
         setTotal(typeof count === "number" && Number.isFinite(count) ? count : data.leads.length);

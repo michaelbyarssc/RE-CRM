@@ -3,7 +3,7 @@ import "server-only";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { leads, tags, leadTags, csvImports } from "@/lib/db/schema";
-import { eq, like, or, inArray, sql, and } from "drizzle-orm";
+import { eq, like, or, inArray, sql, and, count } from "drizzle-orm";
 import { getAuthenticatedUser } from "@/lib/auth";
 import { LEAD_STATUSES } from "@/lib/constants";
 import { BadRequestError, NotFoundError } from "@/lib/errors";
@@ -105,7 +105,7 @@ export async function getLeads(params?: {
     .offset(offset);
 
   const countResult = await db
-    .select({ count: sql<number>`count(*)` })
+    .select({ count: count() })
     .from(leads)
     .where(whereClause);
 
@@ -344,15 +344,14 @@ export async function getLeadCounts() {
   const results = await db
     .select({
       status: leads.status,
-      count: sql<number>`count(*)`,
+      count: count(),
     })
     .from(leads)
     .where(eq(leads.userId, authUser.effectiveId))
     .groupBy(leads.status);
 
-  // Postgres returns count(*) as a bigint, which the driver hands back as a
-  // string; convert it so the total is a sum and not "0" + "2" = "02".
-  const byStatus = results.map((r) => ({ ...r, count: Number(r.count) }));
-  const total = byStatus.reduce((sum, r) => sum + r.count, 0);
-  return { byStatus, total };
+  // count() from drizzle-orm gives a number. A raw sql`count(*)` would give
+  // text (Postgres sends a bigint), and the sum would be "0" + "2" = "02".
+  const total = results.reduce((sum, r) => sum + r.count, 0);
+  return { byStatus: results, total };
 }
