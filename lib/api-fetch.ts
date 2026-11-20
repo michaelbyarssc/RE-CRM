@@ -53,28 +53,27 @@ async function helpfulServerText(res: Response): Promise<string | null> {
  * check: what the user should check when the server refused the values. Example: "Check the title, date and times."
  */
 export async function apiErrorMessage(res: Response, what: string, check?: string): Promise<string> {
+  // No connection and signed out: the server text (if any) would not help.
+  if (res.status === 0) return `${what}. Check your internet connection and try again.`;
+  if (res.status === 401) return `${what}. You are signed out. Sign in again and retry.`;
+
+  // For every other answer, a clear text from the server wins.
+  const text = await helpfulServerText(res);
+  if (res.status === 404) {
+    return `${what}. ${text ?? "It was not found."} It may have been deleted. Refresh the page.`;
+  }
+  if (text) return `${what}. ${text}`;
+
   switch (res.status) {
-    case 0:
-      return `${what}. Check your internet connection and try again.`;
-    case 401:
-      return `${what}. You are signed out. Sign in again and retry.`;
-    case 403: {
-      const text = await helpfulServerText(res);
-      return `${what}. ${text ?? "Your account is not allowed to do this."}`;
-    }
-    case 404: {
-      const text = (await helpfulServerText(res)) ?? "It was not found.";
-      return `${what}. ${text} It may have been deleted. Refresh the page.`;
-    }
+    case 403:
+      return `${what}. Your account is not allowed to do this.`;
     case 409:
       return `${what}. It already exists.`;
     case 413:
       return `${what}. It is too large.`;
     case 400:
-    case 422: {
-      const text = await helpfulServerText(res);
-      return `${what}. ${text ?? check ?? "Check what you entered and try again."}`;
-    }
+    case 422:
+      return `${what}. ${check ?? "Check what you entered and try again."}`;
     default:
       return `${what}. Something went wrong on our side. Try again in a minute.`;
   }
