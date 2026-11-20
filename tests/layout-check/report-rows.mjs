@@ -155,6 +155,17 @@ export function summaryRows(rep) {
       ? `past edge ${c.pastEdge}, names cut ${c.namesCut}, arrow outside ${c.statusArrowOutside} (of ${c.cards} cards)`
       : null;
   });
+  add("Leads cards: name on 2+ lines, checkbox level with line 1, note button in place, name text inside", (w) => {
+    const c = get("leads", w).cards;
+    const r = c && !c.error ? c.nameRows : null;
+    if (!r) return null;
+    return (
+      `2+ lines ${r.twoOrMoreLines}, ` +
+      `checkbox ${r.checkboxNotLevel ? `NOT LEVEL ${r.checkboxNotLevel}` : "level"}, ` +
+      `note button ${r.noteMovedOrWrongSize ? `MOVED OR WRONG SIZE ${r.noteMovedOrWrongSize}` : "in place"}, ` +
+      `text ${r.textOutsideOrOverControl ? `OUTSIDE OR OVER CHECKBOX OR NOTE BUTTON ${r.textOutsideOrOverControl}` : "inside"} (of ${r.measured} cards)`
+    );
+  });
   add('Leads cards: add-tag "+" alone on a line / under its own last tag', (w) => {
     const c = get("leads", w).cards;
     return c && !c.error ? `${c.plusAloneIn} / ${c.plusUnderTagIn} (of ${c.plusFoundIn} cards with +)` : null;

@@ -370,6 +370,77 @@ export const T_LEAD_CARDS = () => {
   const { fragLines, round } = window.__lt;
   const list = window.__lt.leadsCards();
   if (!list) return { error: "no visible card list" };
+  // The top row of a card: checkbox, name, quick note button. Positions are in
+  // px from the top left corner of the card's content box (inside the border
+  // and the padding). The name's text boxes are cut to the name button when the
+  // button hides what does not fit, so only text that is drawn is counted.
+  const nameRowOf = (card, nameBtn) => {
+    if (!nameBtn) return null;
+    const cr = card.getBoundingClientRect();
+    const cs = getComputedStyle(card);
+    const px = (v) => parseFloat(v) || 0;
+    const box = {
+      left: cr.left + px(cs.borderLeftWidth) + px(cs.paddingLeft),
+      right: cr.right - px(cs.borderRightWidth) - px(cs.paddingRight),
+      top: cr.top + px(cs.borderTopWidth) + px(cs.paddingTop),
+    };
+    const rel = (r) => ({
+      left: round(r.left - box.left),
+      right: round(r.right - box.left),
+      top: round(r.top - box.top),
+      bottom: round(r.bottom - box.top),
+      width: round(r.width),
+      height: round(r.height),
+    });
+    const b = nameBtn.getBoundingClientRect();
+    const clips = getComputedStyle(nameBtn).overflowX !== "visible";
+    const texts = [];
+    const tw = document.createTreeWalker(nameBtn, NodeFilter.SHOW_TEXT);
+    let t;
+    while ((t = tw.nextNode())) {
+      if (!t.data.trim()) continue;
+      const rg = document.createRange();
+      rg.selectNodeContents(t);
+      for (const q of rg.getClientRects()) {
+        if (q.width <= 0.5 || q.height <= 0) continue;
+        const left = clips ? Math.max(q.left, b.left) : q.left;
+        const right = clips ? Math.min(q.right, b.right) : q.right;
+        if (right - left > 0.5) texts.push({ left, right, top: q.top, bottom: q.bottom });
+      }
+    }
+    texts.sort((x, y) => x.top - y.top || x.left - y.left);
+    const first = texts[0];
+    const check = card.querySelector("[data-slot=checkbox]");
+    const note = card.querySelector('[title="Notes"]');
+    const k = check?.getBoundingClientRect();
+    const n = note?.getBoundingClientRect();
+    const row = card.firstElementChild.getBoundingClientRect();
+    const mid = (r) => (r.top + r.bottom) / 2;
+    const left = texts.length ? Math.min(...texts.map((x) => x.left)) : b.left;
+    const right = texts.length ? Math.max(...texts.map((x) => x.right)) : b.right;
+    // Text over a control: a text box that overlaps the control's box in both directions.
+    const overlaps = (c) =>
+      c ? texts.some((x) => x.right > c.left + 0.5 && x.left < c.right - 0.5 && x.bottom > c.top + 0.5 && x.top < c.bottom - 0.5) : false;
+    const underNote = overlaps(n);
+    const overCheckbox = overlaps(k);
+    return {
+      lines: fragLines(nameBtn),
+      button: rel(b),
+      firstLine: first ? rel(first) : null,
+      textLeft: round(left - box.left),
+      textRight: round(right - box.left),
+      contentWidth: round(box.right - box.left),
+      textOutside: left < box.left - 0.5 || right > box.right + 0.5,
+      textUnderNote: underNote,
+      textOverCheckbox: overCheckbox,
+      checkbox: k ? rel(k) : null,
+      checkboxOffFirstLinePx: k && first ? round(Math.abs(mid(k) - mid(first))) : null,
+      noteButton: n ? rel(n) : null,
+      noteRightGapPx: n ? round(box.right - n.right) : null,
+      noteTopBelowRowTopPx: n ? round(n.top - row.top) : null,
+      rowHeight: round(row.height),
+    };
+  };
   const cards = [...list.children].filter((c) => c.querySelector("[data-slot=select-trigger]"));
   const columns = new Set(cards.map((c) => Math.round(c.getBoundingClientRect().left))).size;
   // Anything drawn past the card's own edge.
@@ -416,6 +487,7 @@ export const T_LEAD_CARDS = () => {
       index: i,
       name,
       nameCut,
+      nameRow: nameRowOf(card, nameBtn),
       status: trig.innerText.trim(),
       tags,
       phoneLines,
@@ -440,6 +512,28 @@ export const T_LEAD_CARDS = () => {
     columns,
     pastEdge,
     namesCut: info.filter((c) => c.nameCut).length,
+    nameRows: (() => {
+      const rows = info.map((c) => c.nameRow).filter(Boolean);
+      return {
+        measured: rows.length,
+        twoOrMoreLines: rows.filter((r) => r.lines >= 2).length,
+        // Checkbox center more than 1 px from the center of the name's first line.
+        checkboxNotLevel: rows.filter((r) => r.checkboxOffFirstLinePx == null || r.checkboxOffFirstLinePx > 1).length,
+        // Note button missing, not at the right edge of the content box, not at the
+        // top of the row, or not 28 by 28 px (smaller or larger). 0.5 px tolerance.
+        noteMovedOrWrongSize: rows.filter(
+          (r) =>
+            !r.noteButton ||
+            Math.abs(r.noteRightGapPx) > 0.5 ||
+            Math.abs(r.noteTopBelowRowTopPx) > 0.5 ||
+            Math.abs(r.noteButton.width - 28) > 0.5 ||
+            Math.abs(r.noteButton.height - 28) > 0.5
+        ).length,
+        // Name text outside the card's content box, under the note button or over the checkbox.
+        textOutsideOrOverControl: rows.filter((r) => r.textOutside || r.textUnderNote || r.textOverCheckbox).length,
+        largestCheckboxOffPx: Math.max(0, ...rows.map((r) => r.checkboxOffFirstLinePx ?? 0)),
+      };
+    })(),
     statusArrowOutside: info.filter((c) => !c.statusBox.arrowInside).length,
     phoneWrapsIn: info.filter((c) => c.phoneLines > 1).length,
     plusDropsIn: info.filter((c) => c.plusSameLine === false).length,

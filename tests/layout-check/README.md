@@ -44,6 +44,8 @@ node tests/layout-check/seed.mjs
 
 `seed.mjs` empties the app tables of that database and inserts the made-up data: 60 leads, 7 tags, 31 notes, 8 buyers, 16 calendar events in November and December 2026, and 3 sequences. The rows are the same every time. Run it again before a comparison when something changed the data.
 
+`node tests/layout-check/seed.mjs --long` inserts the same rows and then puts a long data set on top. It is off by default. It gives 14 leads on the first page of the leads list a made-up name of 30 to 40 characters (two "two owners" names, a long hyphenated surname, a name that is one word of 35 letters, and a name that ends in "Jr"), and it gives 5 more leads a third tag, so 8 leads have three tags. Dates, statuses, addresses, phones and notes stay the same, and the names the capture waits for stay as they are. Use it to check that long names do not break a screen. The counts in this README are for the ordinary data, so run the seed again without `--long` before you compare with them. Any other argument stops the seed before it changes anything.
+
 Options for `setup.sh` (environment variables, only used when it writes a new settings file):
 
 | Variable | Default | What it is |
@@ -149,7 +151,7 @@ node tests/layout-check/compare.mjs first second --expect-same
 
 ### What `main` showed on 2026-11-20
 
-Measured on `main` at 814c83d, with the seed of that day. Use it to tell old findings from new ones.
+Measured on `main` at 814c83d, with the seed of that day (the ordinary data, not `--long`). Use it to tell old findings from new ones.
 
 | Width | Clipped text | Sideways scroll | Spills | Lone last words |
 | --- | --- | --- | --- | --- |
@@ -204,6 +206,8 @@ The counts only hold what is in view, which means on the first screenful of the 
 
 The named checks each look at one spot. They scroll to it, measure it and take a close-up. `report-rows.mjs` has the full list.
 
+The row "Leads cards: name on 2+ lines, checkbox level with line 1, note button in place, name text inside" looks at the top row of every card on the page, not only the cards in view. It counts four things: the names on two or more lines; the cards whose checkbox center is more than 1 px from the center of the first line of the name (NOT LEVEL); the cards whose note button is more than 0.5 px away from the right edge of the card's content box or from the top of the row, or is not 28 by 28 px within 0.5 px, larger or smaller (MOVED OR WRONG SIZE); and the cards whose name text reaches more than 0.5 px outside the card's content box or overlaps the note button or the checkbox (OUTSIDE OR OVER CHECKBOX OR NOTE BUTTON). Read it together with the row above it, "Leads cards: past the card edge, names cut, status arrow outside": a name that is cut with three dots stays on one line inside its box, so only that row shows it.
+
 ## What the detector cannot see
 
 - Whether a screen looks good. Uneven gaps, bad alignment, a button that dropped to the next line, and two things that overlap are not counted unless a named check covers that spot.
@@ -211,7 +215,7 @@ The named checks each look at one spot. They scroll to it, measure it and take a
 - Anything below the first screenful, for the counts.
 - States it does not open: hover, most menus and dialogs (it opens Add Lead and Log Call), and error messages (`loadfail.mjs` shows two of them).
 - Other browsers. It runs Chromium only. Safari and Firefox wrap text in another way.
-- Real data. The seed has names of 8 to 29 characters, addresses of 14 to 28 characters and at most 3 tags for a lead. A longer name can still break a screen.
+- Real data. The seed has names of 8 to 29 characters, addresses of 14 to 28 characters and at most 3 tags for a lead. A longer name can still break a screen. `seed.mjs --long` adds names of 30 to 40 characters (see "One-time set-up"); it does not make addresses longer.
 - The map itself. The map tiles are blocked, so the map is an empty background with pins.
 
 ## Known limits
@@ -236,11 +240,19 @@ node tests/layout-check/capture.mjs http://127.0.0.1:3111 weight-500 --weight 50
 
 # The "could not be loaded" messages of the leads and buyers screens, at 1440 and 390
 node tests/layout-check/loadfail.mjs http://127.0.0.1:3111 after
+
+# The same data with long names on top, for a "before" and an "after" with long names
+node tests/layout-check/seed.mjs --long
+node tests/layout-check/capture.mjs http://127.0.0.1:3110 before-long
+node tests/layout-check/capture.mjs http://127.0.0.1:3111 after-long
+node tests/layout-check/compare.mjs before-long after-long
 ```
 
 `--weight` adds one style rule to every page, which acts like changing the number in `app/globals.css`. The report names the weight it saw on the page.
 
 `loadfail.mjs` answers the list request inside the browser with an error, so the app shows its own message. It checks that the message and the "Try again" button are drawn, inside the page and not cut, and that "Try again" brings the list back. It writes `reports/loadfail-<label>.json` and pictures named `loadfail-*.png`.
+
+The last four commands put the long names in the database, capture the "before" and the "after" with them, and compare the two runs.
 
 ## How to add a check for a new screen
 

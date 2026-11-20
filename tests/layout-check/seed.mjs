@@ -1,10 +1,22 @@
 // Made-up, ordinary looking data for the layout screenshots.
 //
-//   node tests/layout-check/seed.mjs
+//   node tests/layout-check/seed.mjs          the ordinary data
+//   node tests/layout-check/seed.mjs --long   the ordinary data, then long names on top
 //
 // It EMPTIES every app table in the layout check database, then inserts the
 // same rows every time (fixed dates, nothing random), so two runs of the
 // capture measure the same screens.
+//
+// --long is off by default. It inserts the same rows, then gives 14 leads on
+// the first page of the leads list a name of 30 to 40 characters (see
+// LONG_NAMES) and gives 5 more leads a third tag (see LONG_TAGS), so 8 leads
+// have three tags. Every other value stays the same: dates, statuses,
+// addresses, phones and notes. Only the table of tag links gets more rows. The
+// names the capture waits for ("Marcus Whitfield", "Christopher & Angela
+// Martinez") and the card with the one tag "Tired Landlord" stay as they are.
+// The counts in the README are for the ordinary data, so seed again without
+// --long before you compare with them. Any other argument stops the script
+// before it changes anything.
 //
 // Safety: the database comes from the local settings file only (never from
 // DATABASE_URL in the environment). The script refuses a database that is not
@@ -19,7 +31,18 @@
 // describes a real house, a real owner or a real deal.
 
 import postgres from "postgres";
-import { assertConnectedToLayoutDatabase, assertLayoutDatabase, needSettings } from "./lib.mjs";
+import { assertConnectedToLayoutDatabase, assertLayoutDatabase, needSettings, parseArgs } from "./lib.mjs";
+
+const USAGE = "Usage: node tests/layout-check/seed.mjs [--long]";
+let LONG = false;
+try {
+  const { options, rest } = parseArgs(process.argv.slice(2), { flags: ["long"] });
+  if (rest.length) throw new Error(`Unknown argument: ${rest.join(" ")}`);
+  LONG = !!options.long;
+} catch (err) {
+  console.error(`${err.message}\n${USAGE}`);
+  process.exit(1);
+}
 
 let settings;
 let target;
@@ -128,6 +151,47 @@ for (const [f, l, a, , , , tags, note] of L) {
 }
 if (L.length < 55) throw new Error(`only ${L.length} leads`);
 
+// The long data set (--long only). [row of L, first name, last name]. Row 0 is
+// the newest lead, so rows 1 and 2 are in the first screenful on a phone. The
+// names are invented: two "two owners" names, one long hyphenated surname
+// (row 2), one name that is a single word of 35 letters with no first name
+// (row 4), one that ends in a short last word (row 6). Rows 0 and 3 keep their
+// names because the capture looks for them. Every row is under 50, so all of
+// them are on page 1 of the leads list.
+const LONG_NAMES = [
+  [1, "Evangeline & Montgomery", "Ashcroft"],
+  [2, "Gwendolyn", "Thistlewaite-Vanderbrook"],
+  [4, null, "Brackenridgewolstenholmefairweather"],
+  [6, "Cornelius Augustine", "Hollingsworth Jr"],
+  [8, "Anastasia Wilhelmina", "Castellanos"],
+  [10, "Thaddeus Bartholomew", "Winterbourne"],
+  [13, "Maximilian & Josephine", "Wetherington"],
+  [17, "Prudence Evangelista", "Blackwood"],
+  [21, "Florentina Margarethe", "Castellvalderrama"],
+  [23, "Leopoldine Fitzgerald", "Montgomerie"],
+  [27, "Seraphina Rosalinde", "Quartermaineworth"],
+  [33, "Augustin Lorenzo", "Wellingborough"],
+  [40, "Cordelia Henrietta", "Ravenscroftwellington"],
+  [46, "Ignatius Leopold", "Throckmortonby"],
+];
+// Extra tags for --long, so these leads have three tags each. [row of L, tags to add]
+const LONG_TAGS = [
+  [4, ["Vacant", "Probate"]],
+  [8, ["Inherited", "Absentee"]],
+  [10, ["High Equity"]],
+  [13, ["Absentee", "Probate"]],
+  [33, ["Vacant"]],
+];
+for (const [i, first, last] of LONG_NAMES) {
+  const n = [first, last].filter(Boolean).join(" ");
+  if (n.length < 30 || n.length > 40) throw new Error(`long name length ${n.length}: ${n}`);
+  if (i >= 50 || i === 0 || i === 3) throw new Error(`long name on row ${i}: ${n}`);
+}
+for (const [i, add] of LONG_TAGS) {
+  const all = new Set([...L[i][6], ...add]);
+  if (all.size !== 3 || add.some((t) => L[i][6].includes(t))) throw new Error(`row ${i} must end with three tags`);
+}
+
 const BUYERS = [
   ["Upstate Cash Homes", "Upstate Cash Homes LLC", "(555) 010-0201", "deals@example.com", "Spartanburg, Boiling Springs", "80k-160k", "Buys 3 to 4 a month, closes in 10 days.", true],
   ["Carl Benning", "Benning Rentals", "(555) 010-0202", "carl@example.com", "Inman, 29349", "60k-120k", "Wants rentals only.", true],
@@ -176,7 +240,10 @@ const SEQUENCES = [
 async function main() {
   // Ask the server itself, before anything is changed.
   const { database } = await assertConnectedToLayoutDatabase(sql);
-  console.log(`Seeding the local database ${database} on ${target.host}:${target.port} (every app table is emptied first)`);
+  console.log(
+    `Seeding the local database ${database} on ${target.host}:${target.port} (every app table is emptied first)` +
+      (LONG ? ", with the long names" : "")
+  );
   await sql.begin(async (tx) => {
     await tx`TRUNCATE lead_sequences, sequence_steps, sequences, lead_tags, tags, notes, call_log,
       skip_trace_results, documents, calendar_events, buyers, csv_imports, settings,
@@ -247,6 +314,14 @@ async function main() {
           VALUES (${leadId}, ${r.id}, 1, 'active', ${daysAgo(10)}, '2027-06-01T09:00:00.000Z')`;
       }
     }
+
+    // The long data set goes on top of the rows above, so everything else stays the same.
+    if (LONG) {
+      for (const [i, first, last] of LONG_NAMES)
+        await tx`UPDATE leads SET first_name = ${first}, last_name = ${last} WHERE id = ${leadIds[i]}`;
+      for (const [i, add] of LONG_TAGS)
+        for (const t of add) await tx`INSERT INTO lead_tags (lead_id, tag_id) VALUES (${leadIds[i]}, ${tagIds[t]})`;
+    }
   });
   const [counts] = await sql`select (select count(*)::int from leads) leads, (select count(*)::int from lead_tags) lead_tags,
     (select count(*)::int from notes) notes, (select count(*)::int from buyers) buyers,
@@ -258,6 +333,12 @@ async function main() {
   );
   const byStatus = await sql`select status, count(*)::int n from leads group by status order by status`;
   console.log(`Leads by status: ${byStatus.map((r) => `${r.status}=${r.n}`).join(" ")}`);
+  if (LONG) {
+    console.log(`Data set: long (${LONG_NAMES.length} long names, ${LONG_TAGS.length} more leads with three tags).`);
+    console.log("Run the seed again without --long before you compare with the counts in the README.");
+  } else {
+    console.log("Data set: ordinary.");
+  }
 }
 
 main().then(
