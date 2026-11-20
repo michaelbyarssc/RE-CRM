@@ -170,7 +170,7 @@ export default function MapPage() {
           </div>
         </div>
 
-        {/* Buyer list side panel — visible when Buyer Zones ON */}
+        {/* Buyer list side panel, visible when Buyer Zones ON */}
         {showBuyerZones && buyerZones.length > 0 && (
           <div className="lg:w-80 lg:shrink-0">
             <div className="border rounded-lg bg-card lg:sticky lg:top-4">

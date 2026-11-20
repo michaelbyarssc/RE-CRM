@@ -115,7 +115,7 @@ export function QuickNoteDialog({
       </DialogTrigger>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Notes — {leadName}</DialogTitle>
+          <DialogTitle>Notes: {leadName}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-3">

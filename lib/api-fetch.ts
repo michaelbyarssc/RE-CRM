@@ -55,7 +55,8 @@ async function helpfulServerText(res: Response): Promise<string | null> {
 export async function apiErrorMessage(res: Response, what: string, check?: string): Promise<string> {
   // No connection and signed out: the server text (if any) would not help.
   if (res.status === 0) return `${what}. Check your internet connection and try again.`;
-  if (res.status === 401) return `${what}. You are signed out. Sign in again and retry.`;
+  // Signing in on this tab would throw away what the user typed, so point to a new tab.
+  if (res.status === 401) return `${what}. You are signed out. Sign in again in a new tab, then try again here.`;
 
   // For every other answer, a clear text from the server wins.
   const text = await helpfulServerText(res);
