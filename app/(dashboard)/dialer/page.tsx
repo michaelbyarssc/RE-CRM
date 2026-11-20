@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { apiFetch, apiErrorMessage } from "@/lib/api-fetch";
 import {
   Phone,
   PhoneOff,
@@ -57,11 +58,29 @@ export default function DialerPage() {
   const [logOpen, setLogOpen] = useState(false);
   const [disposition, setDisposition] = useState("answered");
   const [callNotes, setCallNotes] = useState("");
+  const [savingLog, setSavingLog] = useState(false);
   const [statusFilter, setStatusFilter] = useState("new");
+  // True after a refused load, until a load succeeds. With no leads on the
+  // screen it shows a sentence instead of "No leads with phone numbers in this status."
+  const [loadFailed, setLoadFailed] = useState(false);
+  // True while "Try again" runs the load again.
+  const [retrying, setRetrying] = useState(false);
 
+  // Loads the leads to call. On a refusal the leads already on the screen stay.
   const fetchLeads = useCallback(async () => {
-    const res = await fetch(`/api/leads?status=${statusFilter}&pageSize=100`);
-    const data = await res.json();
+    const res = await apiFetch(`/api/leads?status=${statusFilter}&pageSize=100`);
+    if (!res.ok) {
+      setLoadFailed(true);
+      toast.error(await apiErrorMessage(res, "Could not load your leads"));
+      return;
+    }
+    const data = await res.json().catch(() => null);
+    if (!data || !Array.isArray(data.leads)) {
+      setLoadFailed(true);
+      toast.error("Could not load your leads. Something went wrong on our side. Try again in a minute.");
+      return;
+    }
+    setLoadFailed(false);
     // Only leads with phone numbers
     setLeads(data.leads.filter((l: Lead) => l.phone));
   }, [statusFilter]);
@@ -71,6 +90,22 @@ export default function DialerPage() {
   }, [fetchLeads]);
 
   const currentLead = leads[currentIndex];
+  const showLoadFailed = loadFailed && leads.length === 0;
+  // Runs the same load again. After a refused load the filter may already show
+  // the new value, so picking it again would send nothing.
+  const handleRetry = async () => {
+    setRetrying(true);
+    try {
+      await fetchLeads();
+    } finally {
+      setRetrying(false);
+    }
+  };
+  const retryButton = (
+    <Button variant="outline" size="sm" onClick={handleRetry} disabled={retrying}>
+      Try again
+    </Button>
+  );
 
   const handleCall = (lead: Lead) => {
     window.open(`tel:${lead.phone}`, "_self");
@@ -80,23 +115,35 @@ export default function DialerPage() {
 
   const handleLogCall = async () => {
     if (!currentLead) return;
-    await fetch("/api/calls", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        leadId: currentLead.id,
-        disposition,
-        notes: callNotes,
-        direction: "outbound",
-      }),
-    });
-    toast.success("Call logged");
-    setLogOpen(false);
-    setCallNotes("");
-    setDisposition("answered");
+    setSavingLog(true);
+    try {
+      const res = await apiFetch("/api/calls", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          leadId: currentLead.id,
+          disposition,
+          notes: callNotes,
+          direction: "outbound",
+        }),
+      });
+      if (!res.ok) {
+        // Keep the dialog open with the disposition and notes the user entered.
+        toast.error(
+          await apiErrorMessage(res, "Could not log the call", "Keep the notes to 10,000 characters or fewer.")
+        );
+        return;
+      }
+      toast.success("Call logged");
+      setLogOpen(false);
+      setCallNotes("");
+      setDisposition("answered");
 
-    if (powerMode && currentIndex < leads.length - 1) {
-      setCurrentIndex((i) => i + 1);
+      if (powerMode && currentIndex < leads.length - 1) {
+        setCurrentIndex((i) => i + 1);
+      }
+    } finally {
+      setSavingLog(false);
     }
   };
 
@@ -134,7 +181,12 @@ export default function DialerPage() {
         </div>
       </div>
 
-      {powerMode && currentLead ? (
+      {showLoadFailed ? (
+        <div className="flex flex-wrap items-center gap-3 mb-4 text-sm text-muted-foreground">
+          <span>Your leads could not be loaded.</span>
+          {retryButton}
+        </div>
+      ) : powerMode && currentLead ? (
         <Card className="mb-6">
           <CardHeader>
             <div className="flex items-center justify-between">
@@ -192,6 +244,14 @@ export default function DialerPage() {
         </Card>
       )}
 
+      {/* The leads on the screen are from an earlier load. */}
+      {loadFailed && leads.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3 mb-3 text-sm text-muted-foreground">
+          <span>This list could not be updated. It may not match the status chosen above.</span>
+          {retryButton}
+        </div>
+      )}
+
       {/* Lead list with click-to-call */}
       <div className="space-y-2">
         {leads.map((lead, i) => (
@@ -226,7 +286,7 @@ export default function DialerPage() {
 
       {/* Call Log Dialog */}
       <Dialog open={logOpen} onOpenChange={setLogOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Log Call</DialogTitle>
           </DialogHeader>
@@ -260,7 +320,7 @@ export default function DialerPage() {
               />
             </div>
             <div className="flex gap-2">
-              <Button onClick={handleLogCall} className="flex-1">
+              <Button onClick={handleLogCall} disabled={savingLog} className="flex-1">
                 Save Call Log
               </Button>
               <Button variant="outline" onClick={() => setLogOpen(false)}>

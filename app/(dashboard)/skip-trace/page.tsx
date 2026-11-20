@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Papa from "papaparse";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -24,6 +24,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { apiFetch, apiErrorMessage } from "@/lib/api-fetch";
 import { Download, Upload, Search, FileSpreadsheet } from "lucide-react";
 
 interface Lead {
@@ -51,10 +52,29 @@ export default function SkipTracePage() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [provider, setProvider] = useState("batch_skip_tracing");
   const [importProvider, setImportProvider] = useState("batch_skip_tracing");
+  // True after a refused load, until a load succeeds. With no leads on the
+  // screen it shows a sentence instead of an empty list that looks real.
+  const [loadFailed, setLoadFailed] = useState(false);
+  // True while a results file is being saved. The ref blocks a second file at once.
+  const [importing, setImporting] = useState(false);
+  const importingRef = useRef(false);
 
-  const fetchLeads = useCallback(async () => {
-    const res = await fetch("/api/leads?pageSize=200");
-    const data = await res.json();
+  // Loads the leads. On a refusal the leads already on the screen stay.
+  // `quiet` is for the reload after an import with refused rows: its message is already shown.
+  const fetchLeads = useCallback(async ({ quiet = false }: { quiet?: boolean } = {}) => {
+    const res = await apiFetch("/api/leads?pageSize=200");
+    if (!res.ok) {
+      setLoadFailed(true);
+      if (!quiet) toast.error(await apiErrorMessage(res, "Could not load your leads"));
+      return;
+    }
+    const data = await res.json().catch(() => null);
+    if (!data || !Array.isArray(data.leads)) {
+      setLoadFailed(true);
+      if (!quiet) toast.error("Could not load your leads. Something went wrong on our side. Try again in a minute.");
+      return;
+    }
+    setLoadFailed(false);
     setLeads(data.leads);
   }, []);
 
@@ -139,71 +159,114 @@ export default function SkipTracePage() {
 
   const handleImportResults = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    // Empty the picker so the same file can be chosen again for a retry.
+    // The file itself stays readable.
+    e.target.value = "";
+    if (!file || importingRef.current) return;
+    // With no leads loaded, no row could be matched, and "Updated 0 leads" would mislead.
+    if (loadFailed && leads.length === 0) {
+      toast.error("Could not import the results. Your leads are not loaded, so the results cannot be matched. Refresh the page and try again.");
+      return;
+    }
+    importingRef.current = true;
+    setImporting(true);
+    const finish = () => {
+      importingRef.current = false;
+      setImporting(false);
+    };
 
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
+      error: () => {
+        finish();
+        toast.error("Could not read the file. Check that it is a CSV file and try again.");
+      },
       complete: async (results) => {
-        const data = results.data as Record<string, string>[];
-        let updated = 0;
+        try {
+          const data = results.data as Record<string, string>[];
+          let updated = 0;
+          let refused = 0;
+          // The first refused answer, used to say why rows could not be saved.
+          let firstRefusal: Response | null = null;
 
-        for (const row of data) {
-          // Try to match by address
-          const address =
-            row["Address"] ||
-            row["Property Street Address"] ||
-            row["Street Address"] ||
-            row["Property Address"] ||
-            "";
+          for (const row of data) {
+            // Try to match by address
+            const address =
+              row["Address"] ||
+              row["Property Street Address"] ||
+              row["Street Address"] ||
+              row["Property Address"] ||
+              "";
 
-          if (!address) continue;
+            if (!address) continue;
 
-          const phone =
-            row["Phone 1"] ||
-            row["Phone"] ||
-            row["Best Phone"] ||
-            row["Mobile Phone"] ||
-            row["Cell Phone"] ||
-            "";
-          const email =
-            row["Email 1"] ||
-            row["Email"] ||
-            row["Best Email"] ||
-            "";
+            const phone =
+              row["Phone 1"] ||
+              row["Phone"] ||
+              row["Best Phone"] ||
+              row["Mobile Phone"] ||
+              row["Cell Phone"] ||
+              "";
+            const email =
+              row["Email 1"] ||
+              row["Email"] ||
+              row["Best Email"] ||
+              "";
 
-          if (!phone && !email) continue;
+            if (!phone && !email) continue;
 
-          // Find matching lead
-          const matchingLead = leads.find(
-            (l) =>
-              l.propertyAddress.toLowerCase().trim() ===
-              address.toLowerCase().trim()
-          );
+            // Find matching lead
+            const matchingLead = leads.find(
+              (l) =>
+                l.propertyAddress.toLowerCase().trim() ===
+                address.toLowerCase().trim()
+            );
 
-          if (matchingLead) {
-            const updateData: Record<string, string> = {};
-            if (phone && !matchingLead.phone) updateData.phone = phone;
-            if (email && !matchingLead.email) updateData.email = email;
+            if (matchingLead) {
+              const updateData: Record<string, string> = {};
+              if (phone && !matchingLead.phone) updateData.phone = phone;
+              if (email && !matchingLead.email) updateData.email = email;
 
-            if (Object.keys(updateData).length > 0) {
-              await fetch(`/api/leads/${matchingLead.id}`, {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(updateData),
-              });
-              updated++;
+              if (Object.keys(updateData).length > 0) {
+                const res = await apiFetch(`/api/leads/${matchingLead.id}`, {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(updateData),
+                });
+                if (!res.ok) {
+                  refused++;
+                  firstRefusal ??= res;
+                  continue;
+                }
+                updated++;
+              }
             }
           }
-        }
 
-        toast.success(`Updated ${updated} leads with skip trace results`);
-        fetchLeads();
+          if (firstRefusal) {
+            // Quiet reload: the message about the refused rows is the one the user reads.
+            fetchLeads({ quiet: true });
+            toast.error(
+              await apiErrorMessage(
+                firstRefusal,
+                `Saved ${updated} of ${updated + refused} leads. ${refused} could not be saved`,
+                "Check that each phone number has at most 50 characters and each email at most 320."
+              )
+            );
+            return;
+          }
+          fetchLeads();
+          toast.success(`Updated ${updated} leads with skip trace results`);
+        } finally {
+          finish();
+        }
       },
     });
   };
 
   const noPhoneLeads = leads.filter((l) => !l.phone);
+  const showLoadFailed = loadFailed && leads.length === 0;
 
   return (
     <div>
@@ -221,9 +284,11 @@ export default function SkipTracePage() {
               <CardTitle className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <span>Select Leads to Export</span>
                 <div className="flex flex-wrap items-center gap-3">
-                  <Badge variant="outline">
-                    {noPhoneLeads.length} leads without phone
-                  </Badge>
+                  {!showLoadFailed && (
+                    <Badge variant="outline">
+                      {noPhoneLeads.length} leads without phone
+                    </Badge>
+                  )}
                   <Select value={provider} onValueChange={(v) => v && setProvider(v)}>
                     <SelectTrigger className="w-[180px]">
                       <SelectValue />
@@ -247,8 +312,13 @@ export default function SkipTracePage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
+              {showLoadFailed && (
+                <p className="text-sm text-muted-foreground text-center py-8">
+                  Your leads could not be loaded. Refresh the page to try again.
+                </p>
+              )}
               {/* Mobile card view */}
-              <div className="md:hidden space-y-2">
+              <div className={showLoadFailed ? "hidden" : "md:hidden space-y-2"}>
                 <div className="flex items-center gap-2 mb-3 pb-3 border-b">
                   <Checkbox
                     checked={selected.size === leads.length && leads.length > 0}
@@ -287,7 +357,7 @@ export default function SkipTracePage() {
               </div>
 
               {/* Desktop table view */}
-              <div className="hidden md:block border rounded-md">
+              <div className={showLoadFailed ? "hidden" : "hidden md:block border rounded-md"}>
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -369,10 +439,18 @@ export default function SkipTracePage() {
                     className="hidden"
                     id="skip-trace-import"
                     onChange={handleImportResults}
+                    disabled={importing}
                   />
-                  <label htmlFor="skip-trace-import" className={cn(buttonVariants({ variant: "outline" }), "cursor-pointer")}>
+                  <label
+                    htmlFor="skip-trace-import"
+                    aria-disabled={importing}
+                    className={cn(
+                      buttonVariants({ variant: "outline" }),
+                      importing ? "pointer-events-none opacity-50" : "cursor-pointer"
+                    )}
+                  >
                     <FileSpreadsheet className="h-4 w-4 mr-2" />
-                    Select File
+                    {importing ? "Saving results..." : "Select File"}
                   </label>
                 </div>
               </div>
