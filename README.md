@@ -128,7 +128,8 @@ What a user sees now:
 - Dialogs scroll when a long text makes them taller than the screen, so the save button stays in reach.
 - The React hydration error on the leads, pipeline, buyers, calendar and sequences screens is gone. A button that opens a dialog or a menu was written inside another button.
 - Sign out loads the login page as a full page. Before, the browser logged three 404 answers for `/login?_rsc=...` after every sign out on a production build: the page refresh after sign out made the router fetch the sidebar links again for a user who was already signed out. A sign out that fails now says so and leaves the user signed in.
-- After sign out, the Back button cannot bring a screen back. A browser can keep the last page in memory and show it again without asking the server. Every page with the sidebar now checks for the sign-in cookie when it is shown, and loads again from the server when the cookie is gone. This relies on the Supabase sign-in cookie being readable by the page, which is the default: if the cookie is ever made `httpOnly` or renamed, change `hasSignInCookie()` in `components/layout/sidebar.tsx` too, or every screen will load twice.
+- After sign out, the Back button cannot bring a screen back. A browser can keep a page in memory and show it again without asking the server, also to the next person who signs in. A page with the sidebar that comes back from the browser's memory is now always loaded again from the server. The cost: a signed-in user who leaves the app by a full page load and comes back with the Back button gets a fresh page, not the kept one. Moves inside the app are not affected.
+- A page with the sidebar that is shown without the sign-in cookie is loaded again from the server too. This check reads the Supabase sign-in cookie in the page, which works with the default cookie. If the cookie is ever made `httpOnly` or renamed, change `hasSignInCookie()` in `components/layout/sidebar.tsx` too, or every screen opened by a full page load (a typed address, a bookmark, a link from outside the app) loads twice. A refresh and moves inside the app are not affected, and it never loops.
 
 The rules for new code:
 
@@ -146,7 +147,10 @@ Found on the way and left for later:
 - Sign out does not end "view as" for an admin (that cookie lasts 4 hours and only counts for an admin).
 - The lead id in the page address is used in requests without a check that it is a number.
 - The event and quick note dialogs are narrower than the code asks for on wide screens (a class in the shared dialog wins).
+- On the leads list and the dialer, a slow answer to an older search can replace the answer to a newer one.
+- On the lead detail, a status or tag change while the edit form is open reloads the lead and throws away the typed edits.
 - Some selects show the stored value instead of its label ("no_answer" in Log Call, "email" in Add Step).
+- The "select all" box on the leads list shows a full check mark when only some rows are ticked.
 - A `<Button>` sits inside a link on the dialer, lead detail and welcome screens. It causes no error today.
 - Older help texts and comments still contain long dashes.
 
