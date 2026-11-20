@@ -20,8 +20,10 @@
 // image, the "outside" script address is answered by the test, and every
 // other outside request is aborted.
 //
-// Page errors that are not about the policy (React error 418 on five
-// screens today) are counted and printed, but do not fail this test.
+// A page error (an error that no code caught) on any screen fails the
+// checks, with one narrow, named exception (see KNOWN_418_SCREENS). Other
+// console errors do not fail them: the two expected kinds are named below,
+// and anything else is printed in the test output.
 
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -40,7 +42,27 @@ const AUTH = process.env.TEST_AUTH_URL;
 const OUTSIDE_ORIGIN = "https://outside.example.com";
 const OUTSIDE_SCRIPT = `${OUTSIDE_ORIGIN}/t33-probe.js`;
 const FRAME_HOST = "http://frame-host.example.com/";
+const UNKNOWN_PAGE = "/no-such-page-t33";
 const POLICY_TEXT = /Content Security Policy|Content-Security-Policy|\bCSP\b/i;
+
+// Page errors fail the checks, with ONE narrow exception: React error 418 on
+// exactly these five screens. The cause is a button inside a button in the
+// header of each of them. The fix is in pull request 4. DELETE this
+// exception (this list and isKnown418) once that fix is on main: after
+// that, no page error at all is allowed. A 418 on any other screen, and any
+// other page error anywhere, already fails the checks.
+const KNOWN_418_SCREENS = ["/leads", "/pipeline", "/buyers", "/calendar", "/sequences"];
+const isKnown418 = (e) => /Minified React error #418\b/.test(e.text) && KNOWN_418_SCREENS.includes(e.path);
+
+// Console errors that are not page errors do not fail the checks. Two kinds
+// existed before this work and are expected:
+// 1. The browser's own line for a page that answers 404: the unknown address.
+// 2. After sign-out, calls that links had queued to fetch pages ahead of
+//    time are sent on to /login and answer 404 (addresses "/login?_rsc=...").
+// Every other console error is printed in the test output.
+const RESOURCE_404 = "Failed to load resource: the server responded with a status of 404 (Not Found)";
+const isExpectedConsoleError = (c) =>
+  c.text === RESOURCE_404 && (c.url === APP + UNKNOWN_PAGE || c.url.startsWith(APP + "/login?_rsc="));
 // A 1x1 PNG for map tiles.
 const TILE = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
@@ -111,16 +133,29 @@ function violationListener() {
   );
 }
 
-/** A fresh context that records violations, policy console lines and page errors. */
+/** The path of the page an event came from. */
+function pathOf(page) {
+  try {
+    return new URL(page.url()).pathname;
+  } catch {
+    return "?";
+  }
+}
+
+/** A fresh context that records violations, console errors, policy console lines and page errors. */
 async function newContext({ signedIn = false } = {}) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-  const seen = { violations: [], policyConsole: [], pageErrors: [], outsideAborted: [] };
+  const seen = { violations: [], policyConsole: [], consoleErrors: [], pageErrors: [], outsideAborted: [] };
   await context.exposeBinding("__t33Report", (_source, v) => seen.violations.push(v));
   await context.addInitScript(violationListener);
   context.on("console", (m) => {
-    if ((m.type() === "error" || m.type() === "warning") && POLICY_TEXT.test(m.text())) seen.policyConsole.push(m.text());
+    if (m.type() !== "error" && m.type() !== "warning") return;
+    if (POLICY_TEXT.test(m.text())) seen.policyConsole.push(m.text());
+    else if (m.type() === "error") seen.consoleErrors.push({ text: m.text(), url: m.location()?.url || "", path: pathOf(m.page()) });
   });
-  context.on("weberror", (e) => seen.pageErrors.push(String(e.error()?.message || e.error()).split("\n")[0]));
+  context.on("weberror", (e) =>
+    seen.pageErrors.push({ text: String(e.error()?.message || e.error()).split("\n")[0], path: pathOf(e.page()) })
+  );
   // Requests to anything but the app and the sign-in stub stay on this machine.
   await context.route(
     (url) => !url.href.startsWith(APP) && !url.href.startsWith(AUTH),
@@ -140,14 +175,42 @@ async function newContext({ signedIn = false } = {}) {
   return { context, seen };
 }
 
-/** Violations and policy console lines since `mark`, as readable text. */
+/** Page errors since index `from` that are not the known React error 418, as readable text. */
+function pageErrorProblems(seen, from = 0) {
+  return seen.pageErrors
+    .slice(from)
+    .filter((e) => !isKnown418(e))
+    .map((e) => `page error on ${e.path}: ${e.text}`);
+}
+
+/** What fails a screen check since `mark`: violations, policy console lines and page errors. */
 function newProblems(seen, mark) {
   return [
     ...seen.violations.slice(mark.v).map((v) => `violation ${v.directive} blocked=${v.blocked} on ${v.document}`),
     ...seen.policyConsole.slice(mark.c).map((t) => `console: ${t}`),
+    ...pageErrorProblems(seen, mark.p),
   ];
 }
-const markOf = (seen) => ({ v: seen.violations.length, c: seen.policyConsole.length });
+const markOf = (seen) => ({ v: seen.violations.length, c: seen.policyConsole.length, p: seen.pageErrors.length });
+
+/**
+ * Print the page error count and every console error that is not one of the
+ * two expected kinds. `visitedKnownScreens`: this check opened the five
+ * screens of the 418 exception.
+ */
+function printNotes(t, seen, { visitedKnownScreens = false } = {}) {
+  const known = seen.pageErrors.filter(isKnown418);
+  const where = [...new Set(known.map((e) => e.path))].join(", ") || "none";
+  t.diagnostic(`page errors: ${seen.pageErrors.length}, of them the known React error 418: ${known.length} (on ${where})`);
+  if (visitedKnownScreens && known.length === 0) {
+    t.diagnostic("the known React error 418 did not show up: if the fix is on main now, delete the exception in this file");
+  }
+  const expected = seen.consoleErrors.filter(isExpectedConsoleError);
+  t.diagnostic(`console errors: ${seen.consoleErrors.length}, of them expected 404 lines: ${expected.length}`);
+  for (const c of seen.consoleErrors.filter((c) => !isExpectedConsoleError(c))) {
+    t.diagnostic(`unexpected console error on ${c.path}: ${c.text} (${c.url})`);
+  }
+}
 
 /** Wait until check() is true. Returns false when it is still not true after ms. */
 async function until(check, ms = 5000) {
@@ -165,13 +228,24 @@ async function settle(page) {
 
 // ---------- a, b, e: sign in, every screen, sign out (one signed-in context) ----------
 
-check("T33 sign-in, every screen and sign-out raise no policy violation", async (t) => {
+check("T33 sign-in, every screen and sign-out raise no policy violation and no page error", async (t) => {
   const { context, seen } = await newContext();
   const page = await context.newPage();
   try {
     await t.test("a. sign in through the real login form, land on the dashboard", async () => {
       const mark = markOf(seen);
       await page.goto(APP + "/login", { waitUntil: "load" });
+      // Fill the form only once React has attached to it. Before that, a
+      // click on the button would be a plain form submit by the browser.
+      const formIsLive = () =>
+        page.evaluate(() => {
+          const form = document.querySelector("form");
+          return Boolean(form) && Object.keys(form).some((key) => key.startsWith("__reactProps$"));
+        });
+      assert.ok(
+        await until(formIsLive, 15_000),
+        "the login form did not become interactive within 15 seconds (React did not attach to it), so it was not filled"
+      );
       await page.locator("#email").fill(USERS.A.email);
       await page.locator("#password").fill(BROWSER_PASSWORD);
       const token = page.waitForResponse(
@@ -208,13 +282,13 @@ check("T33 sign-in, every screen and sign-out raise no policy violation", async 
         "/privacy",
         "/terms",
         "/login", // signed in, this goes on to the dashboard
-        "/no-such-page-t33",
+        UNKNOWN_PAGE,
       ];
       const problems = [];
       for (const path of paths) {
         const mark = markOf(seen);
         const res = await page.goto(APP + path, { waitUntil: "load" });
-        const expected = path === "/no-such-page-t33" ? 404 : 200;
+        const expected = path === UNKNOWN_PAGE ? 404 : 200;
         assert.equal(res.status(), expected, `${path}: ${res.status()}`);
         assert.equal(new URL(page.url()).pathname, path === "/login" ? "/" : path, `${path}: landed on ${page.url()}`);
         assert.ok(res.headers()["content-security-policy"], `${path}: no policy header`);
@@ -254,26 +328,31 @@ check("T33 sign-in, every screen and sign-out raise no policy violation", async 
       assert.deepEqual(newProblems(seen, mark), []);
     });
 
-    t.diagnostic(`page errors seen on these screens (not part of this check): ${seen.pageErrors.length}`);
+    // Page errors that arrived late, after the last step above.
+    await page.waitForTimeout(300);
+    assert.deepEqual(pageErrorProblems(seen), []);
+    printNotes(t, seen, { visitedKnownScreens: true });
   } finally {
     await context.close();
   }
 });
 
-check("T33 b. signed-out pages and the signed-out 404 redirect raise no policy violation", async () => {
+check("T33 b. signed-out pages and the signed-out 404 redirect raise no policy violation and no page error", async (t) => {
   const { context, seen } = await newContext();
   const page = await context.newPage();
   try {
     const problems = [];
-    for (const path of ["/login", "/privacy", "/terms", "/no-such-page-t33"]) {
+    for (const path of ["/login", "/privacy", "/terms", UNKNOWN_PAGE]) {
       const mark = markOf(seen);
       await page.goto(APP + path, { waitUntil: "load" });
       await settle(page);
       const landed = new URL(page.url()).pathname;
-      assert.equal(landed, path === "/no-such-page-t33" ? "/login" : path);
+      assert.equal(landed, path === UNKNOWN_PAGE ? "/login" : path);
+      await page.waitForTimeout(200);
       problems.push(...newProblems(seen, mark).map((p) => `${path}: ${p}`));
     }
     assert.deepEqual(problems, []);
+    printNotes(t, seen);
   } finally {
     await context.close();
   }
@@ -338,6 +417,7 @@ for (const where of [
           await run(page, seen, keepPolicy);
           const onPage = () => page.locator("body").innerText().then((text) => text.includes(where.shows));
           assert.ok(await until(onPage, 10_000), `this is not ${where.label}: "${where.shows}" is not shown`);
+          assert.deepEqual(pageErrorProblems(seen), []);
         } finally {
           await context.close();
         }
@@ -485,7 +565,7 @@ check("T33 d. another site cannot show the app in a frame", async (t) => {
   ];
   for (const c of cases) {
     await t.test(c.name, async () => {
-      const { context } = await newContext();
+      const { context, seen } = await newContext();
       const page = await context.newPage();
       try {
         await page.route(FRAME_HOST, (route) =>
@@ -519,6 +599,7 @@ check("T33 d. another site cannot show the app in a frame", async (t) => {
           await page.waitForTimeout(700);
           assert.equal(await showsApp(), false, "the frame shows the app");
         }
+        assert.deepEqual(pageErrorProblems(seen), []);
       } finally {
         await context.close();
       }
