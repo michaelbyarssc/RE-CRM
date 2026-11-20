@@ -3,8 +3,12 @@
 // violation, sign-in and sign-out reach the sign-in service, and the app
 // cannot be put in a frame.
 //
-// Runs only when Playwright and Chromium are found (see helpers/browser.mjs
-// and TEST_BROWSER in run.mjs); otherwise every check is skipped with a note.
+// The runner decides whether these checks run, by starting the browser once
+// (helpers/browser.mjs, TEST_BROWSER in run.mjs). This file never decides
+// again. When the runner said "skip", every check is skipped with the
+// runner's reason. When it said "run" and the browser does not start here,
+// every check FAILS. At the end the file reports to the runner what it
+// really did, and the runner's closing line is made from that report.
 //
 // Violations are collected by a listener installed before any page script
 // runs (securitypolicyviolation events). Each event is sent to the test at
@@ -21,13 +25,14 @@
 
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { findBrowser } from "./helpers/browser.mjs";
+import { writeFileSync } from "node:fs";
+import { browserDecision, launchBrowser } from "./helpers/browser.mjs";
 import { BROWSER_PASSWORD } from "./helpers/auth-stub.mjs";
 import { reseed, closeDb, db, USERS } from "./helpers/db.mjs";
 import { sessionCookie } from "./helpers/http.mjs";
 
-const found = findBrowser(process.env.TEST_BROWSER);
-const skip = found.run ? false : `browser checks skipped: ${process.env.TEST_BROWSER_NOTE || found.reason}`;
+const decision = browserDecision();
+const skip = decision.run ? false : `browser checks skipped by the runner: ${decision.reason}`;
 if (skip) console.log(`# T33 ${skip}`);
 
 const APP = process.env.TEST_APP_URL;
@@ -44,9 +49,31 @@ const TILE = Buffer.from(
 
 let browser;
 let ids;
+// Set when the runner said "run" but the browser did not start here.
+let startError = null;
+// What this file really did, for the runner's closing line.
+const report = { browserStarted: false, version: null, checksPlanned: 0, checksStarted: 0 };
+
+/** One browser check. Skipped only when the runner said so; it fails when the browser did not start. */
+function check(name, fn) {
+  report.checksPlanned++;
+  test(name, { skip }, async (t) => {
+    if (startError) throw startError;
+    report.checksStarted++;
+    await fn(t);
+  });
+}
 
 before(async () => {
   if (skip) return;
+  try {
+    browser = await launchBrowser();
+  } catch (err) {
+    startError = err;
+    return;
+  }
+  report.browserStarted = true;
+  report.version = browser.version();
   ids = await reseed();
   // A buyer zone, so the map draws one (the API would call the geocoder).
   const criteria = {
@@ -54,10 +81,12 @@ before(async () => {
     geocodedAreas: [{ name: "Alphaville", lat: 34.9, lng: -81.9, type: "city" }],
   };
   await db()`UPDATE buyers SET buy_criteria = ${JSON.stringify(criteria)} WHERE id = ${ids.aBuyer}`;
-  browser = await found.chromium.launch({ headless: true, executablePath: found.executable });
 });
 
 after(async () => {
+  if (!skip && process.env.TEST_BROWSER_RESULT_FILE) {
+    writeFileSync(process.env.TEST_BROWSER_RESULT_FILE, JSON.stringify(report));
+  }
   if (browser) await browser.close();
   await closeDb();
 });
@@ -136,7 +165,7 @@ async function settle(page) {
 
 // ---------- a, b, e: sign in, every screen, sign out (one signed-in context) ----------
 
-test("T33 sign-in, every screen and sign-out raise no policy violation", { skip }, async (t) => {
+check("T33 sign-in, every screen and sign-out raise no policy violation", async (t) => {
   const { context, seen } = await newContext();
   const page = await context.newPage();
   try {
@@ -231,7 +260,7 @@ test("T33 sign-in, every screen and sign-out raise no policy violation", { skip 
   }
 });
 
-test("T33 b. signed-out pages and the signed-out 404 redirect raise no policy violation", { skip }, async () => {
+check("T33 b. signed-out pages and the signed-out 404 redirect raise no policy violation", async () => {
   const { context, seen } = await newContext();
   const page = await context.newPage();
   try {
@@ -294,7 +323,7 @@ for (const where of [
   { label: "/login signed out", path: "/login", signedIn: false, shows: "Sign in to your account" },
   { label: "the dashboard signed in", path: "/", signedIn: true, shows: "Quick Actions" },
 ]) {
-  test(`T33 c. injected script does not run on ${where.label}, and runs without the policy (control)`, { skip }, async (t) => {
+  check(`T33 c. injected script does not run on ${where.label}, and runs without the policy (control)`, async (t) => {
     // Each case runs twice, each time in a fresh context: with the policy
     // (the script must not run and a violation must be recorded), then
     // without it (the control: the script must run).
@@ -444,7 +473,7 @@ for (const where of [
 
 // ---------- d: the app cannot be put in a frame ----------
 
-test("T33 d. another site cannot show the app in a frame", { skip }, async (t) => {
+check("T33 d. another site cannot show the app in a frame", async (t) => {
   // Two headers each forbid framing on their own: the policy's
   // frame-ancestors 'none' and X-Frame-Options. The frame shows the app only
   // when BOTH are removed (the control).

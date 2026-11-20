@@ -24,12 +24,19 @@
 // TEST_BROWSER (see below).
 //
 // Browser checks (t33) need Playwright and its Chromium, which are not
-// dependencies of the app and are never downloaded. The TEST processes (not
-// the app) also get NODE_PATH and PLAYWRIGHT_BROWSERS_PATH from outside, so
-// Playwright and its browser can be found. TEST_BROWSER=1: the browser
-// checks must run (the run fails if Playwright or Chromium is missing);
-// TEST_BROWSER=0: skip them; unset: run them when found, skip with a note
-// when not. The runner prints one line that says which happened.
+// dependencies of the app and are never downloaded. This runner decides
+// once whether they run, by really starting the browser and closing it
+// again (helpers/browser.mjs). TEST_BROWSER=1: they must run (the run fails
+// if the browser cannot start); TEST_BROWSER=0: skip them; unset: run them
+// when the browser starts, skip with a note when it does not.
+//
+// The TEST processes (not the app) get the decision, plus what Playwright
+// needs to find the same browser: NODE_PATH, PLAYWRIGHT_BROWSERS_PATH,
+// XDG_CACHE_HOME and LOCALAPPDATA when set (HOME is passed anyway). t33
+// never decides again: when this runner said "run" and the browser does not
+// start there, t33 fails. t33 reports back what it really did, and the
+// closing line "browser checks: ..." is made from that report, so "RAN"
+// means that every browser check was started with a running browser.
 
 import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -46,7 +53,7 @@ import {
   SUPABASE_ANON_KEY,
 } from "./helpers/config.mjs";
 import { startAuthStub } from "./helpers/auth-stub.mjs";
-import { findBrowser } from "./helpers/browser.mjs";
+import { browserEnvForTests, decideBrowserChecks } from "./helpers/browser.mjs";
 import { applySchema, applyLockdown, lockdownFileExists, LOCKDOWN_FILE } from "../scripts/lib/migrations.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -100,23 +107,18 @@ const appEnv = {
   TEST_GOOGLE_STUB_FILE: googleStubFile,
   NODE_OPTIONS: `--require ${path.join(here, "helpers", "no-network.cjs")}`,
 };
-const browser = findBrowser(process.env.TEST_BROWSER);
-// The line printed at the end. main() updates it when the tests start.
-let browserLine = browser.run
-  ? "browser checks: did NOT run (the run stopped before the tests)"
-  : `browser checks: SKIPPED (${browser.reason})`;
-// Only for the test processes: what Playwright needs to be found.
-const browserEnv = Object.fromEntries(
-  [
-    ["NODE_PATH", process.env.NODE_PATH],
-    ["PLAYWRIGHT_BROWSERS_PATH", process.env.PLAYWRIGHT_BROWSERS_PATH],
-  ].filter(([, v]) => v)
-);
+// Decided once, here, by starting the browser (see helpers/browser.mjs).
+const browser = await decideBrowserChecks(process.env.TEST_BROWSER);
+// t33 writes here what it really did. The closing line is made from it.
+const browserResultFile = path.join(outDir, "browser-checks.json");
+// Where the run stands for the browser checks: "stopped" before the tests
+// start, then "selected" or "not selected" (t33 in the list of files or not).
+let browserPlan = "stopped";
 const testEnv = {
   ...baseEnv,
-  ...browserEnv,
-  TEST_BROWSER: browser.run ? "1" : "0",
-  TEST_BROWSER_NOTE: browser.reason,
+  // Only for the test processes: the decision, and what Playwright needs.
+  ...browserEnvForTests(browser),
+  TEST_BROWSER_RESULT_FILE: browserResultFile,
   TEST_DATABASE_URL: cfg.databaseUrl,
   TEST_APP_URL: cfg.appUrl,
   TEST_NOCRON_URL: cfg.noCronUrl,
@@ -271,9 +273,34 @@ function scanLogsForLeaks() {
   return ok;
 }
 
+// What really happened with the browser checks, for the closing line.
+// "RAN" only when t33 reports a started browser and that every check began.
+function browserOutcome() {
+  if (!browser.run) {
+    const word = browser.required ? "could NOT run" : "SKIPPED";
+    return { ok: !browser.required, line: `browser checks: ${word} (${browser.reason})` };
+  }
+  if (browserPlan === "stopped") return { ok: true, line: "browser checks: did NOT run (the run stopped before the tests)" };
+  if (browserPlan === "not selected") return { ok: true, line: "browser checks: did NOT run (t33 is not in TEST_FILES)" };
+  let said = null;
+  try {
+    said = JSON.parse(readFileSync(browserResultFile, "utf8"));
+  } catch {
+    // t33 wrote no report
+  }
+  if (said && said.browserStarted && said.checksPlanned > 0 && said.checksStarted === said.checksPlanned) {
+    return { ok: true, line: `browser checks: RAN in t33 (all ${said.checksPlanned} checks, Chromium ${said.version}); their results are above` };
+  }
+  const why = !said
+    ? "t33 wrote no report"
+    : !said.browserStarted
+      ? "the browser did not start in the test process"
+      : `only ${said.checksStarted} of ${said.checksPlanned} checks started`;
+  return { ok: false, line: `browser checks: did NOT run as the runner planned (${why})` };
+}
+
 async function main() {
   if (browser.required && !browser.run) {
-    browserLine = `browser checks: could NOT run (${browser.reason})`;
     throw new Error(`TEST_BROWSER=1 but the browser checks cannot run: ${browser.reason}`);
   }
   log(browser.run ? `browser checks: will run (${browser.reason})` : `browser checks: will be skipped (${browser.reason})`);
@@ -328,11 +355,7 @@ async function main() {
         .filter((f) => /^t\d\d.*\.test\.mjs$/.test(f))
         .sort()
         .map((f) => path.join("tests", f));
-  if (browser.run) {
-    browserLine = files.some((f) => /t33-csp-browser/.test(f))
-      ? `browser checks: RAN in t33 (${browser.reason}); their results are above`
-      : "browser checks: did NOT run (t33 is not in TEST_FILES)";
-  }
+  browserPlan = files.some((f) => /t33-csp-browser/.test(f)) ? "selected" : "not selected";
   const status = await runNode(
     ["--test", "--test-concurrency=1", "--test-timeout=600000", ...files],
     testEnv,
@@ -351,6 +374,8 @@ try {
   await teardown();
 }
 if (!scanLogsForLeaks()) code = 1;
-log(browserLine);
+const outcome = browserOutcome();
+if (!outcome.ok) code = 1;
+log(outcome.line);
 log(code === 0 ? "ALL PASSED" : "FAILURES (see above)");
 process.exit(code);
