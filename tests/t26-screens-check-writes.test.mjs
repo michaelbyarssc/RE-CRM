@@ -43,6 +43,11 @@
 // - Writes sent another way: a fetch function stored under another name, new
 //   Request(...), XMLHttpRequest, navigator.sendBeacon, or server actions in
 //   lib/actions/. None of these is used by the screens today.
+// - Some shapes that would work are reported on purpose: an answer read as
+//   res["ok"], a destructured `const { ok } = await apiFetch(...)`, a helper
+//   that tests the answer for you (`if (await failed(res))`), a wrapper that
+//   returns apiFetch(...), and a fetch() method held in a constant. The rules
+//   ask for the plain form so the scan can be sure.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

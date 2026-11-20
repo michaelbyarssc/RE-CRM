@@ -18,7 +18,17 @@ export function parseSource(fileName, text) {
   return ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true, kind);
 }
 
-/** The syntax errors the parser found, as "line N: message" strings. */
+/**
+ * The syntax errors the parser found, as "line N: message" strings.
+ *
+ * parseDiagnostics is not in TypeScript's public typings, so it is guarded
+ * below. The public alternative, ts.transpileModule(text, { reportDiagnostics:
+ * true, ... }), gave the same errors on all 74 files of app/, components/ and
+ * lib/ (and "line 2" for the broken sample in t26), but took 0.6 to 1.6 s for
+ * those files against 0.05 to 0.14 s here (measured 2026-11-20, typescript
+ * 5.9.3), because it parses and prints each file again. So this keeps the
+ * parser's own list.
+ */
 export function syntaxErrors(sourceFile) {
   const diagnostics = sourceFile.parseDiagnostics;
   if (!Array.isArray(diagnostics)) {

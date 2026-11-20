@@ -21,11 +21,13 @@
 //
 // Part 2 parses the .tsx files under app/ and components/ (not components/ui)
 // with the TypeScript parser and fails when a JSX element whose name ends in
-// Trigger or Close (not SubTrigger, which renders a div) has no `render` prop
-// and has a <Button> or <button> as its first child element (spaces and line
-// breaks between tags do not count). It cannot see a button passed in
-// through a prop or an expression (for example {trigger}); Part 1 sees those
-// when the server draws them.
+// Trigger or Close has a <Button> or <button> as a direct child, at any
+// position (after text, an icon or a {/* comment */}) and whether or not the
+// element has a `render` prop (with one, the child still lands inside the
+// rendered button). SubTrigger and ContextMenuTrigger are left out: in Base
+// UI they render a div, so a button inside them is valid. It cannot see a
+// button passed in through a prop or an expression (for example {trigger});
+// Part 1 sees those when the server draws them.
 
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -191,9 +193,13 @@ function tagName(element) {
   return opening.tagName.getText();
 }
 
+// Base UI renders these as a div, not a button (menu/submenu-trigger and
+// context-menu/trigger in node_modules/@base-ui/react), so they may hold one.
+const RENDERS_A_DIV = /(SubTrigger|ContextMenuTrigger)$/;
+
 /**
- * Returns [{ trigger, child, line }] for every Trigger or Close element with
- * no render prop whose first child element is a Button or a button.
+ * Returns [{ trigger, child, line }] for every direct child Button or button
+ * of a Trigger or Close element. line is the line of the trigger.
  */
 function findTriggersWrappingButtons(src, fileName = "sample.tsx") {
   const sf = parseSource(fileName, src);
@@ -203,15 +209,12 @@ function findTriggersWrappingButtons(src, fileName = "sample.tsx") {
   forEachNode(sf, (n) => {
     if (!ts.isJsxElement(n)) return;
     const trigger = tagName(n);
-    if (!/(Trigger|Close)$/.test(trigger) || /SubTrigger$/.test(trigger)) return;
-    const hasRender = n.openingElement.attributes.properties.some(
-      (a) => ts.isJsxAttribute(a) && a.name.getText() === "render"
-    );
-    if (hasRender) return;
-    const first = n.children.find((c) => !(ts.isJsxText(c) && c.containsOnlyTriviaWhiteSpaces));
-    if (!first || !(ts.isJsxElement(first) || ts.isJsxSelfClosingElement(first))) return;
-    const child = tagName(first);
-    if (child === "Button" || child === "button") found.push({ trigger, child, line: lineOf(sf, n) });
+    if (!/(Trigger|Close)$/.test(trigger) || RENDERS_A_DIV.test(trigger)) return;
+    for (const c of n.children) {
+      if (!ts.isJsxElement(c) && !ts.isJsxSelfClosingElement(c)) continue;
+      const child = tagName(c);
+      if (child === "Button" || child === "button") found.push({ trigger, child, line: lineOf(sf, n) });
+    }
   });
   return found;
 }
@@ -225,11 +228,22 @@ test("T27 the source scanner finds a Button written inside a trigger and passes 
       <button className="y">+</button>
     </DropdownMenuTrigger>
     <p>Don't click (here) {count}</p>
+    <DialogTrigger>{/* open */}<Button>Add</Button></DialogTrigger>
+    <DialogTrigger>Add <Button /></DialogTrigger>
+    <DialogTrigger><Plus /><Button>Add</Button></DialogTrigger>
+    <DialogTrigger render={<Button />}><Button>Add</Button></DialogTrigger>
   </>);`;
   assert.deepEqual(
     findTriggersWrappingButtons(bad).map((f) => `${f.trigger} ${f.child} line ${f.line}`),
-    ["DialogTrigger Button line 2", "DropdownMenuTrigger button line 5"],
-    "a trigger with a button inside is found, also with an apostrophe in the text after it"
+    [
+      "DialogTrigger Button line 2",
+      "DropdownMenuTrigger button line 5",
+      "DialogTrigger Button line 9",
+      "DialogTrigger Button line 10",
+      "DialogTrigger Button line 11",
+      "DialogTrigger Button line 12",
+    ],
+    "a button inside a trigger is found first, after a comment, text or an icon, and next to a render prop"
   );
   const good = `const page = (<>
     <DialogTrigger render={<Button variant="outline" />}>Add</DialogTrigger>
@@ -243,6 +257,7 @@ test("T27 the source scanner finds a Button written inside a trigger and passes 
     <DropdownMenuSubTrigger><span>Tags</span></DropdownMenuSubTrigger>
     <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
     <DialogTrigger>{trigger}</DialogTrigger>
+    <ContextMenuTrigger><button>Right-click target</button></ContextMenuTrigger>
   </>);`;
   assert.deepEqual(findTriggersWrappingButtons(good), []);
 });
