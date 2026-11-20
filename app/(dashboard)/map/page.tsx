@@ -48,6 +48,9 @@ export default function MapPage() {
   const [geocoding, setGeocoding] = useState(false);
   const [buyerZones, setBuyerZones] = useState<BuyerZone[]>([]);
   const [showBuyerZones, setShowBuyerZones] = useState(false);
+  // True after a refused load, until a load succeeds. With nothing loaded the
+  // header shows a sentence instead of "0 of 0 leads on map".
+  const [loadFailed, setLoadFailed] = useState(false);
 
   // Loads the leads for the map. On a refusal what is on the map stays.
   // `quiet` is for the reload after a refused change: its message is already shown.
@@ -55,6 +58,7 @@ export default function MapPage() {
     const res = await apiFetch("/api/leads/geocode");
     const data = res.ok ? await res.json().catch(() => null) : null;
     if (!data || !Array.isArray(data.leads)) {
+      setLoadFailed(true);
       if (!quiet) {
         // One id, so a second load at the same time does not stack a second toast.
         toast.error(
@@ -66,6 +70,7 @@ export default function MapPage() {
       }
       return;
     }
+    setLoadFailed(false);
     setLeads(data.leads);
     setTotal(data.total);
     setUngeocoded(data.ungeocoded);
@@ -113,8 +118,14 @@ export default function MapPage() {
           <h1 className="text-2xl font-bold">Map View</h1>
           <p className="text-sm text-muted-foreground">
             <MapPin className="h-3 w-3 inline mr-1" />
-            {leads.length} of {total} leads on map
-            {ungeocoded > 0 && ` (${ungeocoded} need geocoding)`}
+            {loadFailed && leads.length === 0 && total === 0 ? (
+              "Your leads could not be loaded. Refresh the page to try again."
+            ) : (
+              <>
+                {leads.length} of {total} leads on map
+                {ungeocoded > 0 && ` (${ungeocoded} need geocoding)`}
+              </>
+            )}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">

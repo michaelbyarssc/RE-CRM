@@ -163,6 +163,11 @@ export default function SkipTracePage() {
     // The file itself stays readable.
     e.target.value = "";
     if (!file || importingRef.current) return;
+    // With no leads loaded, no row could be matched, and "Updated 0 leads" would mislead.
+    if (loadFailed && leads.length === 0) {
+      toast.error("Could not import the results. Your leads are not loaded, so the results cannot be matched. Refresh the page and try again.");
+      return;
+    }
     importingRef.current = true;
     setImporting(true);
     const finish = () => {

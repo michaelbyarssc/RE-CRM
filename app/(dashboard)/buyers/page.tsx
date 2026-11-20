@@ -39,6 +39,9 @@ interface Buyer {
 
 export default function BuyersPage() {
   const [buyers, setBuyers] = useState<Buyer[]>([]);
+  // True after a refused load, until a load succeeds. With no buyers on the
+  // screen it shows a sentence instead of "No buyers yet", which would not be true.
+  const [loadFailed, setLoadFailed] = useState(false);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({
     name: "",
@@ -55,14 +58,17 @@ export default function BuyersPage() {
   const fetchBuyers = useCallback(async ({ quiet = false }: { quiet?: boolean } = {}) => {
     const res = await apiFetch("/api/buyers");
     if (!res.ok) {
+      setLoadFailed(true);
       if (!quiet) toast.error(await apiErrorMessage(res, "Could not load your buyers"));
       return;
     }
     const data = await res.json().catch(() => null);
     if (!Array.isArray(data)) {
+      setLoadFailed(true);
       if (!quiet) toast.error("Could not load your buyers. Something went wrong on our side. Try again in a minute.");
       return;
     }
+    setLoadFailed(false);
     setBuyers(data);
   }, []);
 
@@ -262,7 +268,15 @@ export default function BuyersPage() {
         </Dialog>
       </div>
 
-      {buyers.length === 0 ? (
+      {loadFailed && buyers.length === 0 ? (
+        <Card>
+          <CardContent className="text-center py-12">
+            <p className="text-muted-foreground">
+              Your buyers could not be loaded. Refresh the page to try again.
+            </p>
+          </CardContent>
+        </Card>
+      ) : buyers.length === 0 ? (
         <Card>
           <CardContent className="text-center py-12">
             <UserCheck className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
