@@ -47,6 +47,14 @@ const navItems = [
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
+// Splits an email before the "@" so a long one can wrap there.
+function emailParts(email: string) {
+  const at = email.lastIndexOf("@");
+  return at > 0
+    ? { local: email.slice(0, at), domain: email.slice(at) }
+    : { local: email, domain: "" };
+}
+
 // The Supabase sign-in cookie: "sb-<project>-auth-token", split into ".0", ".1"
 // and so on when it is long. It is readable here (not httpOnly).
 function hasSignInCookie() {
@@ -136,9 +144,17 @@ function SidebarContent({
       </nav>
       {userEmail && (
         <div className="p-3 border-t">
-          <div className="px-3 py-2">
-            <p className="text-xs text-muted-foreground truncate">
-              {userEmail}
+          {/* Left padding matches the Sign Out button so the two line up. The email
+              is never cut: a long one wraps, preferably just before the "@". */}
+          <div className="pl-2.5 py-2">
+            <p
+              data-sidebar-email
+              title={userEmail}
+              className="text-xs text-muted-foreground [overflow-wrap:anywhere]"
+            >
+              {emailParts(userEmail).local}
+              <wbr />
+              {emailParts(userEmail).domain}
             </p>
           </div>
           <Button

@@ -178,7 +178,6 @@ Found on the way and left for later:
 - The event and quick note dialogs are narrower than the code asks for on wide screens (a class in the shared dialog wins).
 - On the leads list and the dialer, a slow answer to an older search can replace the answer to a newer one.
 - On the lead detail, a status or tag change while the edit form is open reloads the lead and throws away the typed edits.
-- Some selects show the stored value instead of its label ("no_answer" in Log Call, "email" in Add Step).
 - The "select all" box on the leads list shows a full check mark when only some rows are ticked.
 - A `<Button>` sits inside a link on the dialer, lead detail and welcome screens. It causes no error today.
 - Older help texts and comments still contain long dashes.

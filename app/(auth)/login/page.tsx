@@ -88,7 +88,7 @@ export default function LoginPage() {
           </Button>
         </form>
 
-        <div className="mt-4 text-center text-sm text-muted-foreground">
+        <div className="mt-4 text-center text-sm text-muted-foreground text-balance">
           Accounts are for Deal Desk Pro customers only.
         </div>
       </CardContent>

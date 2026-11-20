@@ -101,7 +101,7 @@ export default async function DashboardPage() {
                           style={{ backgroundColor: typeInfo?.hex || "#6B7280" }}
                         />
                         <div className="flex-1 min-w-0">
-                          <p className="font-medium text-sm truncate">{event.title}</p>
+                          <p className="font-medium text-sm text-balance [overflow-wrap:anywhere]">{event.title}</p>
                           <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
                             <Clock className="h-3 w-3" />
                             {formatEventDate(event.startAt, event.allDay)}
