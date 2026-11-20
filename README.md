@@ -114,6 +114,42 @@ Each run makes a new random `SETTINGS_ENCRYPTION_KEY`, starts one extra app serv
 
 Options: `TEST_DATABASE_URL`, `TEST_APP_PORT`, `TEST_AUTH_PORT`, `TEST_SKIP_BUILD=1` (reuse the last build), `TEST_FILES="tests/t05-leads.test.mjs"`.
 
+## Screens and refused changes (2026-11-20)
+
+A QA pass on 2026-11-19 found screens that said "saved" when the server had refused the change. This section says what a user sees now, and what rule new code must follow.
+
+What a user sees now:
+
+- Every save, change and delete checks the server's answer. When the server refuses, the screen shows one short message that says what did not happen and what to check, for example "Could not add the step. The delay must be a whole number of days from 0 to 3,650, and the instructions 5,000 characters or fewer." The dialog or form stays open with everything that was typed. No success message is shown, and the user can try again in the same place.
+- A lost connection and an ended session get their own messages. The message for an ended session says to sign in again in a new tab, because signing in on the same tab would throw away what was typed.
+- A list that cannot load no longer breaks the screen. The leads list, pipeline, skip trace, dialer, lead detail, buyers and map keep what they show and say that the data could not be loaded. The leads list and the dialer have a "Try again" button.
+- The buyers screen says how many areas were left out when a buyer has more than 25 different areas. The map takes the first 25 areas of each buyer.
+- The leads list remembers which leads are selected by lead, not by row position, so a bulk action that is tried again reaches the same leads.
+- Dialogs scroll when a long text makes them taller than the screen, so the save button stays in reach.
+- The React hydration error on the leads, pipeline, buyers, calendar and sequences screens is gone. A button that opens a dialog or a menu was written inside another button.
+- Sign out loads the login page as a full page. Before, the browser logged three 404 answers for `/login?_rsc=...` after every sign out on a production build: the page refresh after sign out made the router fetch the sidebar links again for a user who was already signed out. A sign out that fails now says so and leaves the user signed in.
+- After sign out, the Back button cannot bring a screen back. A browser can keep the last page in memory and show it again without asking the server. Every page with the sidebar now checks for the sign-in cookie when it is shown, and loads again from the server when the cookie is gone. This relies on the Supabase sign-in cookie being readable by the page, which is the default: if the cookie is ever made `httpOnly` or renamed, change `hasSignInCookie()` in `components/layout/sidebar.tsx` too, or every screen will load twice.
+
+The rules for new code:
+
+- A screen sends a change with `apiFetch()` from `lib/api-fetch.ts`, written as `const res = await apiFetch(...)`, and tests `res.ok` before it shows success, closes a dialog or clears a form. `apiErrorMessage()` in the same file words the message from the status and from the server's own text.
+- A button that opens a dialog or a menu goes into the trigger's `render` prop: `<DialogTrigger render={<Button />}>Label</DialogTrigger>`. Never write a `<Button>` inside a trigger.
+- Two tests keep both rules. `tests/t26-screens-check-writes.test.mjs` reads every screen file and fails when a change is sent without checking the answer. `tests/t27-no-button-in-button.test.mjs` fails when a screen has a button inside a button.
+
+How it was checked: every action was run in a real browser against the old code and the new code, with a refusal forced for each one, and then tried again. The browser scripts are not in the repository, because Playwright is not a dependency.
+
+Found on the way and left for later:
+
+- The calendar, sequences and settings screens still say nothing when their own list cannot load.
+- A buyer with more than 25 areas cannot get the rest on the map: "Map Areas" always looks up the first 25.
+- Deleting a buyer, a note, a sequence or a step that is already gone still answers "ok".
+- Sign out does not end "view as" for an admin (that cookie lasts 4 hours and only counts for an admin).
+- The lead id in the page address is used in requests without a check that it is a number.
+- The event and quick note dialogs are narrower than the code asks for on wide screens (a class in the shared dialog wins).
+- Some selects show the stored value instead of its label ("no_answer" in Log Call, "email" in Add Step).
+- A `<Button>` sits inside a link on the dialer, lead detail and welcome screens. It causes no error today.
+- Older help texts and comments still contain long dashes.
+
 ## Security (2026-11-19)
 
 Findings from the audit of 2026-11-19 and their fixes:
