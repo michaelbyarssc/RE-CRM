@@ -3,7 +3,7 @@ import "server-only";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { sequences, sequenceSteps, leadSequences, leads } from "@/lib/db/schema";
-import { eq, sql, and } from "drizzle-orm";
+import { eq, sql, and, count } from "drizzle-orm";
 import { getAuthenticatedUser } from "@/lib/auth";
 import { NotFoundError } from "@/lib/errors";
 import { parseWith } from "@/lib/validation";
@@ -71,7 +71,7 @@ export async function getSequences() {
       .orderBy(sequenceSteps.stepOrder);
 
     const [enrolledCount] = await db
-      .select({ count: sql<number>`count(*)` })
+      .select({ count: count() })
       .from(leadSequences)
       .where(and(eq(leadSequences.sequenceId, seq.id), eq(leadSequences.status, "active")));
 

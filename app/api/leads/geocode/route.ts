@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { leads } from "@/lib/db/schema";
-import { isNull, sql, and, eq } from "drizzle-orm";
+import { isNull, sql, and, eq, count } from "drizzle-orm";
 import { geocodeAddress } from "@/lib/geocode";
 import { withAuth } from "@/lib/api-handler";
 
@@ -49,7 +49,7 @@ export const POST = withAuth(async ({ user: authUser }) => {
   }
 
   const [remaining] = await db
-    .select({ count: sql<number>`count(*)` })
+    .select({ count: count() })
     .from(leads)
     .where(and(eq(leads.userId, userId), isNull(leads.latitude)));
 
@@ -84,12 +84,12 @@ export const GET = withAuth(async ({ user: authUser }) => {
     ));
 
   const [total] = await db
-    .select({ count: sql<number>`count(*)` })
+    .select({ count: count() })
     .from(leads)
     .where(eq(leads.userId, userId));
 
   const [ungeocoded] = await db
-    .select({ count: sql<number>`count(*)` })
+    .select({ count: count() })
     .from(leads)
     .where(and(eq(leads.userId, userId), isNull(leads.latitude)));
 
