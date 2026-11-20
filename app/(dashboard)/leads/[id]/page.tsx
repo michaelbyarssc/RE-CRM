@@ -683,12 +683,14 @@ export default function LeadDetailPage({
               </CardTitle>
             </CardHeader>
             <CardContent>
+              {/* The box grows with the text up to 15rem, then scrolls on its own,
+                  so the Add Note button stays in view with a very long note. */}
               <div className="flex gap-2 mb-4">
                 <Textarea
                   placeholder="Add a note..."
                   value={newNote}
                   onChange={(e) => setNewNote(e.target.value)}
-                  className="min-h-[80px]"
+                  className="min-h-[80px] max-h-60 overflow-y-auto"
                 />
               </div>
               <Button
