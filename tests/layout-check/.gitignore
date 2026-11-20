@@ -1,0 +1,6 @@
+# Everything the layout check tool writes: pictures, reports, logs and the
+# local settings file. The settings file holds passwords that were made up on
+# this machine. Never commit any of it.
+out/
+settings.env
+*.local.env
