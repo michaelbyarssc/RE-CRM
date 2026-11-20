@@ -124,6 +124,7 @@ Rules to keep:
 - Every page is rendered for each request (the root layout calls `connection()`), because the nonce is new every time. It must stay that way: a page built ahead of time has no nonce, so the browser would block its scripts.
 - To allow a new outside service, add its host to the right line in `lib/security/csp.mjs` (pictures, fonts or connections). Then update the expected policy in `tests/t30-csp-policy.test.mjs` and `tests/t31-csp-pages.test.mjs`, and run the browser checks (`TEST_BROWSER=1 npm test`).
 - A feature that adds an inline script, or a script from another site, must put the nonce on the script tag. In a server component, read it with `(await headers()).get("x-nonce")` (`headers` comes from `next/headers`) and pass it as the `nonce` of the tag, as the Next.js guide for Content Security Policy shows. Without the nonce the browser refuses such a script, on purpose. The policy has no `'strict-dynamic'`: with it, the browser would run any script that other script adds, with no nonce and from any site.
+- Script files from this site's own address run without a nonce. So content that a user supplied must never be served from this site's address with a JavaScript content type.
 - In development (`npm run dev`) the script rule also has `'unsafe-eval'`, which the Next.js development tools need. Production does not have it.
 - A dialer that runs in the browser would need the microphone. Turn it back on in the `Permissions-Policy` line in `next.config.ts` then (`microphone=(self)`).
 
@@ -140,7 +141,7 @@ Each run makes a new random `SETTINGS_ENCRYPTION_KEY`, starts one extra app serv
 
 Options: `TEST_DATABASE_URL`, `TEST_APP_PORT`, `TEST_AUTH_PORT`, `TEST_SKIP_BUILD=1` (reuse the last build), `TEST_FILES="tests/t05-leads.test.mjs"`, `TEST_BROWSER` (below).
 
-Browser checks (`tests/t33-csp-browser.test.mjs`) open the app in a real browser. They prove that the page policy blocks injected script and that every screen works under it. They need Playwright and its Chromium, which are not dependencies of this app and are never downloaded by the tests. They run when both are found (through `NODE_PATH` and `PLAYWRIGHT_BROWSERS_PATH`) and are skipped with a note when not. `TEST_BROWSER=1` makes them required, `TEST_BROWSER=0` skips them. The runner prints one line that says which happened.
+Browser checks (`tests/t33-csp-browser.test.mjs`) open the app in a real browser. They prove that the page policy blocks injected script and that every screen works under it. They need Playwright and its Chromium, which are not dependencies of this app and are never downloaded by the tests. The runner decides once whether they run, by starting the browser and closing it again: they run when it starts, and are skipped with a note when it does not. `TEST_BROWSER=1` makes them required, `TEST_BROWSER=0` skips them. The runner's closing line "browser checks: ..." is made from what the browser test reports back: "RAN" means that every browser check was started with a running browser. A new page must be added to `tests/helpers/pages.mjs`; the tests compare that list with the pages of the build and fail until it is.
 
 ## Security (2026-11-19)
 
@@ -188,6 +189,9 @@ Not covered yet (deliberately left for later):
 - The page policy still allows inline styles, because Leaflet (the map) and FullCalendar need them.
 - Policy violations are not collected anywhere: the browser blocks them and only notes them in its own console.
 - The https header (HSTS) has no `includeSubDomains` and no `preload`. Both affect every subdomain of the site's domain, so that is an owner decision.
+- The built-in 404 page on the few addresses the proxy skips (`/robots.txt`, `/sitemap.xml`, and an unknown address that only starts with `/api`, such as `/apiary`) gets the fixed headers but not the page policy.
+- The app has no error page of its own. When a page fails on the server, the visitor gets the plain Next.js page "This page couldn't load" with a Reload button, and it works under the page policy. Next.js also builds one copy of that page ahead of time, with scripts that have no nonce: the policy blocks those scripts, but that copy still shows its message and its Reload button still works.
+- Five screens (leads, pipeline, buyers, calendar, sequences) still log React error 418 in the browser console, until the fix for a button inside a button from pull request 4 is merged.
 - Lint reports `react-hooks/set-state-in-effect` as a warning, not an error, for 12 screens that load data when they open.
 - An admin who is impersonating a user can still replace or clear that user's saved keys (they cannot see them).
 - Saved values from before the encryption change are still read as plain text. Once the one-off script has run on the live database, a later change can remove that fallback and add a database check that tokens are always encrypted.
