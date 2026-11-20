@@ -24,6 +24,7 @@ import {
 import { Upload, FileSpreadsheet, Check, AlertCircle } from "lucide-react";
 import { CSV_COLUMN_MAPPINGS, LEAD_FIELD_OPTIONS } from "@/lib/constants";
 import { toast } from "sonner";
+import { apiFetch, apiErrorMessage } from "@/lib/api-fetch";
 
 type ImportState = "upload" | "mapping" | "importing" | "done";
 
@@ -85,7 +86,7 @@ export default function ImportPage() {
   const handleImport = async () => {
     setState("importing");
     try {
-      const res = await fetch("/api/leads/import", {
+      const res = await apiFetch("/api/leads/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -94,7 +95,17 @@ export default function ImportPage() {
           filename: file?.name || "unknown.csv",
         }),
       });
-      if (!res.ok) throw new Error(`Import refused (${res.status})`);
+      if (!res.ok) {
+        toast.error(
+          await apiErrorMessage(
+            res,
+            "Could not import the leads",
+            "A file can have at most 25,000 rows. Split a larger file and import each part."
+          )
+        );
+        setState("mapping");
+        return;
+      }
       const result = await res.json();
       setResult(result);
       setState("done");

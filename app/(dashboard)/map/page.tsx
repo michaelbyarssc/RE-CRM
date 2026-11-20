@@ -14,6 +14,7 @@ import {
 import { LEAD_STATUSES } from "@/lib/constants";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
+import { apiFetch, apiErrorMessage } from "@/lib/api-fetch";
 import { MapPin, RefreshCw, UserCheck, Phone, Mail, DollarSign } from "lucide-react";
 
 const MapView = dynamic(
@@ -50,6 +51,7 @@ export default function MapPage() {
 
   const fetchMapData = useCallback(async () => {
     const res = await fetch("/api/leads/geocode");
+    if (!res.ok) return;
     const data = await res.json();
     setLeads(data.leads);
     setTotal(data.total);
@@ -72,14 +74,18 @@ export default function MapPage() {
   const handleGeocode = async () => {
     setGeocoding(true);
     try {
-      const res = await fetch("/api/leads/geocode", { method: "POST" });
+      const res = await apiFetch("/api/leads/geocode", { method: "POST" });
+      if (!res.ok) {
+        toast.error(await apiErrorMessage(res, "Could not put your leads on the map", "Refresh the page and try again."));
+        fetchMapData();
+        return;
+      }
       const data = await res.json();
       toast.success(`Geocoded ${data.geocoded} leads. ${data.remaining} remaining.`);
       fetchMapData();
-    } catch {
-      toast.error("Geocoding failed");
+    } finally {
+      setGeocoding(false);
     }
-    setGeocoding(false);
   };
 
   return (

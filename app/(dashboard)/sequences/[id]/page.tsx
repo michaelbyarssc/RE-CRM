@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
+import { apiFetch, apiErrorMessage } from "@/lib/api-fetch";
 import { ArrowLeft, Plus, Trash2, Clock, Phone, Mail, MessageSquare, CheckSquare } from "lucide-react";
 
 interface Step {
@@ -54,6 +55,7 @@ export default function SequenceDetailPage({
     actionType: "call",
     template: "",
   });
+  const [addingStep, setAddingStep] = useState(false);
 
   const fetchSequence = useCallback(async () => {
     const res = await fetch(`/api/sequences/${id}`);
@@ -66,25 +68,45 @@ export default function SequenceDetailPage({
 
   const handleAddStep = async () => {
     const stepOrder = (sequence?.steps.length ?? 0) + 1;
-    await fetch(`/api/sequences/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "addStep",
-        step: { ...newStep, stepOrder },
-      }),
-    });
-    setNewStep({ delayDays: 1, actionType: "call", template: "" });
-    fetchSequence();
-    toast.success("Step added");
+    setAddingStep(true);
+    try {
+      const res = await apiFetch(`/api/sequences/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "addStep",
+          step: { ...newStep, stepOrder },
+        }),
+      });
+      if (!res.ok) {
+        // Keep the action, delay and instructions the user entered.
+        toast.error(
+          await apiErrorMessage(
+            res,
+            "Could not add the step",
+            "The delay must be a whole number of days from 0 to 3,650, and the instructions 5,000 characters or fewer."
+          )
+        );
+        return;
+      }
+      setNewStep({ delayDays: 1, actionType: "call", template: "" });
+      fetchSequence();
+      toast.success("Step added");
+    } finally {
+      setAddingStep(false);
+    }
   };
 
   const handleDeleteStep = async (stepId: number) => {
-    await fetch(`/api/sequences/${id}`, {
+    const res = await apiFetch(`/api/sequences/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "deleteStep", stepId }),
     });
+    if (!res.ok) {
+      toast.error(await apiErrorMessage(res, "Could not remove the step"));
+      return;
+    }
     fetchSequence();
     toast.success("Step removed");
   };
@@ -201,7 +223,7 @@ export default function SequenceDetailPage({
               Available variables: {"{{first_name}}"}, {"{{last_name}}"}, {"{{property_address}}"}, {"{{phone}}"}
             </p>
           </div>
-          <Button onClick={handleAddStep}>
+          <Button onClick={handleAddStep} disabled={addingStep}>
             <Plus className="h-4 w-4 mr-2" />
             Add Step
           </Button>

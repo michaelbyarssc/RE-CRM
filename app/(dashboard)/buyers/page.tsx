@@ -22,6 +22,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "sonner";
+import { apiFetch, apiErrorMessage } from "@/lib/api-fetch";
 import { Plus, Trash2, Phone, Mail, UserCheck, MapPin, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
@@ -60,11 +61,69 @@ export default function BuyersPage() {
 
   const [creating, setCreating] = useState(false);
 
+  // Asks the server to look up a buyer's areas and put them on the map, then
+  // tells the user what happened. The server looks up at most 25 areas per
+  // buyer, always the first 25, and answers how many it left out (`skipped`).
+  const mapBuyerAreas = async (buyerId: number, isNewBuyer: boolean) => {
+    const res = await apiFetch("/api/buyers/zones", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ buyerId }),
+    });
+    if (!res.ok) {
+      if (isNewBuyer) {
+        toast.error(
+          await apiErrorMessage(res, "The buyer was added, but the areas were not put on the map", "Refresh the page and try again."),
+          { description: 'Press "Map Areas" next to the buyer to try again. Do not add the buyer again.' }
+        );
+      } else {
+        toast.error(
+          await apiErrorMessage(res, "Could not put this buyer's areas on the map", "Refresh the page and try again.")
+        );
+      }
+      fetchBuyers();
+      return;
+    }
+
+    const data: { geocoded?: number; total?: number; skipped?: number } =
+      await res.json().catch(() => ({}));
+    const geocoded = data.geocoded ?? 0;
+    const total = data.total ?? 0;
+    const skipped = data.skipped ?? 0;
+    const lookedUp = total - skipped;
+
+    if (total === 0) {
+      toast.info("This buyer has no areas to put on the map.");
+    } else if (geocoded > 0) {
+      const notFound = lookedUp - geocoded;
+      toast.success(
+        `Mapped ${geocoded} area${geocoded > 1 ? "s" : ""} to the map` +
+          (notFound > 0 ? `. ${notFound} could not be found.` : "")
+      );
+    } else {
+      toast.error("Could not find any of these areas on the map. Check the spelling of the zip codes, cities and counties.");
+    }
+
+    if (skipped > 0) {
+      toast.warning(
+        `${skipped} of ${total} areas were left out of the map`,
+        {
+          description:
+            `The map takes only the first 25 areas of each buyer, so ${lookedUp} were looked up. ` +
+            "Mapping this buyer again looks up the same 25. To map the others, add them as a separate buyer.",
+          duration: Infinity,
+          closeButton: true,
+        }
+      );
+    }
+    fetchBuyers();
+  };
+
   const handleCreate = async () => {
     if (!form.name.trim()) return;
     setCreating(true);
     try {
-      const res = await fetch("/api/buyers", {
+      const res = await apiFetch("/api/buyers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -76,28 +135,34 @@ export default function BuyersPage() {
           notes: form.notes || null,
         }),
       });
-      const buyer = await res.json();
-
-      // Auto-geocode buyer areas for the map if areas were provided
-      if (form.areas.trim()) {
-        toast.success("Buyer added! Geocoding areas for map...");
-        fetch("/api/buyers/zones", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ buyerId: buyer.id }),
-        }).then((geoRes) => geoRes.json()).then((geoData) => {
-          if (geoData.geocoded > 0) {
-            toast.success(`Mapped ${geoData.geocoded} buying area${geoData.geocoded > 1 ? "s" : ""} to the map`);
-          }
-          fetchBuyers();
-        });
-      } else {
-        toast.success("Buyer added");
-        fetchBuyers();
+      if (!res.ok) {
+        // Keep the dialog open with everything the user typed.
+        toast.error(
+          await apiErrorMessage(
+            res,
+            "Could not add the buyer",
+            "Check that no field is too long: name, company and price range up to 200 characters, phone up to 50, areas and notes up to 5,000."
+          )
+        );
+        return;
       }
+      const buyer: Buyer = await res.json();
 
+      // The buyer is saved. Close the dialog and clear the form now, so that
+      // pressing Add Buyer again cannot make a second copy of this buyer.
       setOpen(false);
       setForm({ name: "", company: "", phone: "", email: "", areas: "", priceRange: "", notes: "" });
+      fetchBuyers();
+
+      // Put the buyer's areas on the map. This can take up to about 30
+      // seconds, so it runs on after the dialog has closed and reports back
+      // with its own message.
+      if (form.areas.trim()) {
+        toast.success("Buyer added! Geocoding areas for map...");
+        void mapBuyerAreas(buyer.id, true);
+      } else {
+        toast.success("Buyer added");
+      }
     } finally {
       setCreating(false);
     }
@@ -105,25 +170,19 @@ export default function BuyersPage() {
 
   const handleDelete = async (id: number) => {
     if (!confirm("Remove this buyer?")) return;
-    await fetch(`/api/buyers?id=${id}`, { method: "DELETE" });
+    const res = await apiFetch(`/api/buyers?id=${id}`, { method: "DELETE" });
+    if (!res.ok) {
+      toast.error(await apiErrorMessage(res, "Could not remove the buyer", "Refresh the page and try again."));
+      fetchBuyers();
+      return;
+    }
     toast.success("Buyer removed");
     fetchBuyers();
   };
 
   const handleGeocodeAreas = async (buyerId: number) => {
     toast.info("Geocoding areas for map...");
-    const res = await fetch("/api/buyers/zones", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ buyerId }),
-    });
-    const data = await res.json();
-    if (data.geocoded > 0) {
-      toast.success(`Mapped ${data.geocoded} area${data.geocoded > 1 ? "s" : ""} to the map`);
-    } else {
-      toast.error("Could not geocode any areas");
-    }
-    fetchBuyers();
+    await mapBuyerAreas(buyerId, false);
   };
 
   return (
@@ -131,11 +190,9 @@ export default function BuyersPage() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">Buyers List</h1>
         <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger>
-            <Button>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Buyer
-            </Button>
+          <DialogTrigger render={<Button />}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Buyer
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>

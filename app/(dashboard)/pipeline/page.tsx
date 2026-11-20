@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { LEAD_STATUSES, type LeadStatus } from "@/lib/constants";
 import { toast } from "sonner";
+import { apiFetch, apiErrorMessage } from "@/lib/api-fetch";
 import { MapPin, Phone, GripVertical } from "lucide-react";
 import { AddLeadDialog } from "@/components/leads/add-lead-dialog";
 
@@ -55,23 +56,38 @@ export default function PipelinePage() {
     setDragOverStatus(null);
 
     if (!draggedLead || draggedLead.status === status) return;
+    const lead = draggedLead;
+    setDraggedLead(null);
 
     // Optimistically update UI
     setLeads((prev) =>
       prev.map((l) =>
-        l.id === draggedLead.id ? { ...l, status } : l
+        l.id === lead.id ? { ...l, status } : l
       )
     );
 
-    await fetch(`/api/leads/${draggedLead.id}`, {
+    const res = await apiFetch(`/api/leads/${lead.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
     });
 
+    // On a refusal the card goes back to the column it really is in.
+    if (!res.ok) {
+      setLeads((prev) =>
+        prev.map((l) =>
+          l.id === lead.id ? { ...l, status: lead.status } : l
+        )
+      );
+      toast.error(
+        await apiErrorMessage(res, "Could not move the lead", "Refresh the page and try again.")
+      );
+      fetchLeads();
+      return;
+    }
+
     const statusLabel = LEAD_STATUSES.find((s) => s.value === status)?.label;
     toast.success(`Moved to ${statusLabel}`);
-    setDraggedLead(null);
   };
 
   const getLeadsByStatus = (status: string) =>

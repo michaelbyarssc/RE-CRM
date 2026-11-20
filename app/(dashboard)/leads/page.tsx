@@ -43,6 +43,7 @@ import { QuickNoteDialog } from "@/components/leads/quick-note-dialog";
 import { TagBadge } from "@/components/tags/tag-badge";
 import { LEAD_STATUSES } from "@/lib/constants";
 import { toast } from "sonner";
+import { apiFetch, apiErrorMessage } from "@/lib/api-fetch";
 import {
   Search,
   MoreHorizontal,
@@ -74,6 +75,17 @@ interface Lead {
   tags: LeadTag[];
   createdAt: string;
 }
+
+// What the bulk actions menu tells the user, per action.
+const BULK_TEXTS: Record<"updateStatus" | "addTag" | "delete", { what: string; check?: string; done: (n: number) => string }> = {
+  updateStatus: {
+    what: "Could not change the status of the selected leads",
+    check: "Pick one of the statuses in the list.",
+    done: (n) => `Updated ${n} leads`,
+  },
+  addTag: { what: "Could not tag the selected leads", done: (n) => `Tagged ${n} leads` },
+  delete: { what: "Could not delete the selected leads", done: (n) => `Deleted ${n} leads` },
+};
 
 export default function LeadsPage() {
   const router = useRouter();
@@ -132,46 +144,69 @@ export default function LeadsPage() {
     .filter(Boolean);
 
   const handleBulkAction = async (
-    action: string,
+    action: "updateStatus" | "addTag" | "delete",
     extra?: Record<string, unknown>
   ) => {
     if (selectedIds.length === 0) return;
-    await fetch("/api/leads", {
+    const count = selectedIds.length;
+    const texts = BULK_TEXTS[action];
+    const res = await apiFetch("/api/leads", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action, ids: selectedIds, ...extra }),
     });
+    // On a refusal the selection stays so the user can try again.
+    if (!res.ok) {
+      toast.error(await apiErrorMessage(res, texts.what, texts.check));
+      fetchLeads();
+      return;
+    }
     setRowSelection({});
     fetchLeads();
+    toast.success(texts.done(count));
   };
 
   const handleStatusChange = async (id: number, status: string) => {
-    await fetch(`/api/leads/${id}`, {
+    const res = await apiFetch(`/api/leads/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
     });
+    // Reload either way so each row shows the status that was saved.
     fetchLeads();
+    if (!res.ok) {
+      toast.error(
+        await apiErrorMessage(res, "Could not update the status", "Pick one of the statuses in the list.")
+      );
+    }
   };
 
   const handleAddTag = async (leadId: number, tagId: number) => {
-    await fetch(`/api/leads/${leadId}`, {
+    const res = await apiFetch(`/api/leads/${leadId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "addTag", tagId }),
     });
-    toast.success("Tag added");
     fetchLeads();
+    if (!res.ok) {
+      toast.error(await apiErrorMessage(res, "Could not add the tag"));
+      return;
+    }
+    toast.success("Tag added");
   };
 
   const handleRemoveTag = async (leadId: number, tagId: number) => {
-    await fetch(`/api/leads/${leadId}`, {
+    const res = await apiFetch(`/api/leads/${leadId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "removeTag", tagId }),
     });
-    toast.success("Tag removed");
     fetchLeads();
+    if (!res.ok) {
+      toast.error(await apiErrorMessage(res, "Could not remove the tag"));
+      return;
+    }
+    toast.success("Tag removed");
   };
 
   const columns: ColumnDef<Lead>[] = [
@@ -270,10 +305,12 @@ export default function LeadsPage() {
             ))}
             {availableTags.length > 0 && (
               <DropdownMenu>
-                <DropdownMenuTrigger>
-                  <button className="inline-flex items-center justify-center w-5 h-5 rounded border border-dashed border-muted-foreground/40 text-muted-foreground hover:border-primary hover:text-primary transition-colors">
-                    <Plus className="h-3 w-3" />
-                  </button>
+                <DropdownMenuTrigger
+                  render={
+                    <button className="inline-flex items-center justify-center w-5 h-5 rounded border border-dashed border-muted-foreground/40 text-muted-foreground hover:border-primary hover:text-primary transition-colors" />
+                  }
+                >
+                  <Plus className="h-3 w-3" />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start">
                   {availableTags.map((tag) => (
@@ -384,10 +421,8 @@ export default function LeadsPage() {
               {selectedIds.length} selected
             </span>
             <DropdownMenu>
-              <DropdownMenuTrigger>
-                <Button variant="outline" size="sm">
-                  Bulk Actions
-                </Button>
+              <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>
+                Bulk Actions
               </DropdownMenuTrigger>
               <DropdownMenuContent>
                 <DropdownMenuSub>
@@ -401,9 +436,7 @@ export default function LeadsPage() {
                         onClick={() =>
                           handleBulkAction("updateStatus", {
                             status: s.value,
-                          }).then(() =>
-                            toast.success(`Updated ${selectedIds.length} leads`)
-                          )
+                          })
                         }
                       >
                         <span className={`w-2 h-2 rounded-full ${s.color} mr-2`} />
@@ -424,9 +457,7 @@ export default function LeadsPage() {
                         onClick={() =>
                           handleBulkAction("addTag", {
                             tagId: tag.id,
-                          }).then(() =>
-                            toast.success(`Tagged ${selectedIds.length} leads`)
-                          )
+                          })
                         }
                       >
                         <span
@@ -443,9 +474,7 @@ export default function LeadsPage() {
                   className="text-destructive"
                   onClick={() => {
                     if (confirm(`Delete ${selectedIds.length} leads?`)) {
-                      handleBulkAction("delete").then(() =>
-                        toast.success(`Deleted ${selectedIds.length} leads`)
-                      );
+                      handleBulkAction("delete");
                     }
                   }}
                 >
@@ -538,10 +567,12 @@ export default function LeadsPage() {
                       if (available.length === 0) return null;
                       return (
                         <DropdownMenu>
-                          <DropdownMenuTrigger>
-                            <button className="inline-flex items-center justify-center w-5 h-5 rounded border border-dashed border-muted-foreground/40 text-muted-foreground hover:border-primary hover:text-primary transition-colors">
-                              <Plus className="h-3 w-3" />
-                            </button>
+                          <DropdownMenuTrigger
+                            render={
+                              <button className="inline-flex items-center justify-center w-5 h-5 rounded border border-dashed border-muted-foreground/40 text-muted-foreground hover:border-primary hover:text-primary transition-colors" />
+                            }
+                          >
+                            <Plus className="h-3 w-3" />
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
                             {available.map((tag) => (

@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Eye, EyeOff, Users } from "lucide-react";
+import { toast } from "sonner";
+import { apiFetch, apiErrorMessage } from "@/lib/api-fetch";
 
 interface UserInfo {
   id: string;
@@ -51,18 +53,27 @@ export function ImpersonationBar() {
   };
 
   const startImpersonation = async (targetUserId: string) => {
-    await fetch("/api/admin/impersonate", {
+    const res = await apiFetch("/api/admin/impersonate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ targetUserId }),
     });
+    if (!res.ok) {
+      // Keep the user list open and do not reload, so the admin sees the message.
+      toast.error(await apiErrorMessage(res, "Could not view as this user", "Refresh the page and try again."));
+      return;
+    }
     setShowPicker(false);
     router.refresh();
     window.location.reload();
   };
 
   const stopImpersonation = async () => {
-    await fetch("/api/admin/impersonate", { method: "DELETE" });
+    const res = await apiFetch("/api/admin/impersonate", { method: "DELETE" });
+    if (!res.ok) {
+      toast.error(await apiErrorMessage(res, "Could not stop viewing as this user", "Refresh the page and try again."));
+      return;
+    }
     router.refresh();
     window.location.reload();
   };

@@ -24,6 +24,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { apiFetch, apiErrorMessage } from "@/lib/api-fetch";
 import { Download, Upload, Search, FileSpreadsheet } from "lucide-react";
 
 interface Lead {
@@ -147,6 +148,9 @@ export default function SkipTracePage() {
       complete: async (results) => {
         const data = results.data as Record<string, string>[];
         let updated = 0;
+        let refused = 0;
+        // The first refused answer, used to say why rows could not be saved.
+        let firstRefusal: Response | null = null;
 
         for (const row of data) {
           // Try to match by address
@@ -187,18 +191,33 @@ export default function SkipTracePage() {
             if (email && !matchingLead.email) updateData.email = email;
 
             if (Object.keys(updateData).length > 0) {
-              await fetch(`/api/leads/${matchingLead.id}`, {
+              const res = await apiFetch(`/api/leads/${matchingLead.id}`, {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(updateData),
               });
+              if (!res.ok) {
+                refused++;
+                firstRefusal ??= res;
+                continue;
+              }
               updated++;
             }
           }
         }
 
-        toast.success(`Updated ${updated} leads with skip trace results`);
         fetchLeads();
+        if (firstRefusal) {
+          toast.error(
+            await apiErrorMessage(
+              firstRefusal,
+              `Saved ${updated} of ${updated + refused} leads. ${refused} could not be saved`,
+              "Check that each phone number has at most 50 characters and each email at most 320."
+            )
+          );
+          return;
+        }
+        toast.success(`Updated ${updated} leads with skip trace results`);
       },
     });
   };

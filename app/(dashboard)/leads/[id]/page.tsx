@@ -19,6 +19,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { apiFetch, apiErrorMessage } from "@/lib/api-fetch";
+import { noteCheck } from "@/components/leads/quick-note-dialog";
 import {
   ArrowLeft,
   Phone,
@@ -107,21 +109,24 @@ export default function LeadDetailPage({
   }, [fetchLead, fetchNotes, fetchTags]);
 
   const handleStatusChange = async (status: string) => {
-    const res = await fetch(`/api/leads/${id}`, {
+    const res = await apiFetch(`/api/leads/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
     });
+    // Reload either way so the status shown is the one that was saved.
     fetchLead();
     if (!res.ok) {
-      toast.error("Could not update the status");
+      toast.error(
+        await apiErrorMessage(res, "Could not update the status", "Pick one of the statuses in the list.")
+      );
       return;
     }
     toast.success("Status updated");
   };
 
   const handleSave = async () => {
-    const res = await fetch(`/api/leads/${id}`, {
+    const res = await apiFetch(`/api/leads/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -142,9 +147,13 @@ export default function LeadDetailPage({
     // Keep the form open on a rejected save so the edits are not lost.
     if (!res.ok) {
       toast.error(
-        editData.propertyAddress?.trim()
-          ? "Could not save the lead. Check that no field is too long."
-          : "Could not save the lead. The property address is required."
+        await apiErrorMessage(
+          res,
+          "Could not save the lead",
+          editData.propertyAddress?.trim()
+            ? "Check that no field is too long."
+            : "The property address is required."
+        )
       );
       return;
     }
@@ -155,12 +164,17 @@ export default function LeadDetailPage({
 
   const handleAddNote = async () => {
     if (!newNote.trim()) return;
-    const res = await fetch("/api/notes", {
+    const res = await apiFetch("/api/notes", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ leadId: Number(id), content: newNote, localNow: new Date().toLocaleString("sv-SE", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }).replace(" ", "T") }),
     });
-    const data = await res.json();
+    // On a refusal the typed note stays in the box.
+    if (!res.ok) {
+      toast.error(await apiErrorMessage(res, "Could not add the note", noteCheck(newNote)));
+      return;
+    }
+    const data = await res.json().catch(() => ({}));
     setNewNote("");
     fetchNotes();
     toast.success("Note added");
@@ -172,7 +186,7 @@ export default function LeadDetailPage({
       toast(
         `📅 ${typeLabel} scheduled`,
         {
-          description: `${data.calendarEvent.title} — ${eventDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })} at ${eventDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`,
+          description: `${data.calendarEvent.title} on ${eventDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })} at ${eventDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`,
           action: {
             label: "View Calendar",
             onClick: () => window.location.href = "/calendar",
@@ -183,26 +197,36 @@ export default function LeadDetailPage({
   };
 
   const handleDeleteNote = async (noteId: number) => {
-    await fetch(`/api/notes?id=${noteId}`, { method: "DELETE" });
+    const res = await apiFetch(`/api/notes?id=${noteId}`, { method: "DELETE" });
+    // Reload either way so the list shows what is really saved.
     fetchNotes();
+    if (!res.ok) {
+      toast.error(await apiErrorMessage(res, "Could not delete the note"));
+    }
   };
 
   const handleAddTag = async (tagId: number) => {
-    await fetch(`/api/leads/${id}`, {
+    const res = await apiFetch(`/api/leads/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "addTag", tagId }),
     });
     fetchLead();
+    if (!res.ok) {
+      toast.error(await apiErrorMessage(res, "Could not add the tag"));
+    }
   };
 
   const handleRemoveTag = async (tagId: number) => {
-    await fetch(`/api/leads/${id}`, {
+    const res = await apiFetch(`/api/leads/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "removeTag", tagId }),
     });
     fetchLead();
+    if (!res.ok) {
+      toast.error(await apiErrorMessage(res, "Could not remove the tag"));
+    }
   };
 
   if (!lead) {

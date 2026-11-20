@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { apiFetch, apiErrorMessage } from "@/lib/api-fetch";
 import {
   Phone,
   PhoneOff,
@@ -57,6 +58,7 @@ export default function DialerPage() {
   const [logOpen, setLogOpen] = useState(false);
   const [disposition, setDisposition] = useState("answered");
   const [callNotes, setCallNotes] = useState("");
+  const [savingLog, setSavingLog] = useState(false);
   const [statusFilter, setStatusFilter] = useState("new");
 
   const fetchLeads = useCallback(async () => {
@@ -80,23 +82,35 @@ export default function DialerPage() {
 
   const handleLogCall = async () => {
     if (!currentLead) return;
-    await fetch("/api/calls", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        leadId: currentLead.id,
-        disposition,
-        notes: callNotes,
-        direction: "outbound",
-      }),
-    });
-    toast.success("Call logged");
-    setLogOpen(false);
-    setCallNotes("");
-    setDisposition("answered");
+    setSavingLog(true);
+    try {
+      const res = await apiFetch("/api/calls", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          leadId: currentLead.id,
+          disposition,
+          notes: callNotes,
+          direction: "outbound",
+        }),
+      });
+      if (!res.ok) {
+        // Keep the dialog open with the disposition and notes the user entered.
+        toast.error(
+          await apiErrorMessage(res, "Could not log the call", "Keep the notes to 10,000 characters or fewer.")
+        );
+        return;
+      }
+      toast.success("Call logged");
+      setLogOpen(false);
+      setCallNotes("");
+      setDisposition("answered");
 
-    if (powerMode && currentIndex < leads.length - 1) {
-      setCurrentIndex((i) => i + 1);
+      if (powerMode && currentIndex < leads.length - 1) {
+        setCurrentIndex((i) => i + 1);
+      }
+    } finally {
+      setSavingLog(false);
     }
   };
 
@@ -260,7 +274,7 @@ export default function DialerPage() {
               />
             </div>
             <div className="flex gap-2">
-              <Button onClick={handleLogCall} className="flex-1">
+              <Button onClick={handleLogCall} disabled={savingLog} className="flex-1">
                 Save Call Log
               </Button>
               <Button variant="outline" onClick={() => setLogOpen(false)}>
