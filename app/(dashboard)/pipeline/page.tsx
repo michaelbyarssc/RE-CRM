@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { LEAD_STATUSES, type LeadStatus } from "@/lib/constants";
 import { toast } from "sonner";
+import { apiFetch, apiErrorMessage } from "@/lib/api-fetch";
 import { MapPin, Phone, GripVertical } from "lucide-react";
 import { AddLeadDialog } from "@/components/leads/add-lead-dialog";
 
@@ -25,10 +26,26 @@ export default function PipelinePage() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [draggedLead, setDraggedLead] = useState<Lead | null>(null);
   const [dragOverStatus, setDragOverStatus] = useState<string | null>(null);
+  // True after a refused load, until a load succeeds. With no cards on the
+  // screen it shows a sentence instead of empty columns that read as "no leads".
+  const [loadFailed, setLoadFailed] = useState(false);
 
-  const fetchLeads = useCallback(async () => {
-    const res = await fetch("/api/leads?pageSize=500");
-    const data = await res.json();
+  // Loads the leads. On a refusal the cards already on the screen stay.
+  // `quiet` is for the reload after a refused move: its message is already shown.
+  const fetchLeads = useCallback(async ({ quiet = false }: { quiet?: boolean } = {}) => {
+    const res = await apiFetch("/api/leads?pageSize=500");
+    if (!res.ok) {
+      setLoadFailed(true);
+      if (!quiet) toast.error(await apiErrorMessage(res, "Could not load your leads"));
+      return;
+    }
+    const data = await res.json().catch(() => null);
+    if (!data || !Array.isArray(data.leads)) {
+      setLoadFailed(true);
+      if (!quiet) toast.error("Could not load your leads. Something went wrong on our side. Try again in a minute.");
+      return;
+    }
+    setLoadFailed(false);
     setLeads(data.leads);
   }, []);
 
@@ -55,27 +72,43 @@ export default function PipelinePage() {
     setDragOverStatus(null);
 
     if (!draggedLead || draggedLead.status === status) return;
+    const lead = draggedLead;
+    setDraggedLead(null);
 
     // Optimistically update UI
     setLeads((prev) =>
       prev.map((l) =>
-        l.id === draggedLead.id ? { ...l, status } : l
+        l.id === lead.id ? { ...l, status } : l
       )
     );
 
-    await fetch(`/api/leads/${draggedLead.id}`, {
+    const res = await apiFetch(`/api/leads/${lead.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
     });
 
+    // On a refusal the card goes back to the column it really is in.
+    if (!res.ok) {
+      setLeads((prev) =>
+        prev.map((l) =>
+          l.id === lead.id ? { ...l, status: lead.status } : l
+        )
+      );
+      toast.error(
+        await apiErrorMessage(res, "Could not move the lead", "Refresh the page and try again.")
+      );
+      fetchLeads({ quiet: true });
+      return;
+    }
+
     const statusLabel = LEAD_STATUSES.find((s) => s.value === status)?.label;
     toast.success(`Moved to ${statusLabel}`);
-    setDraggedLead(null);
   };
 
   const getLeadsByStatus = (status: string) =>
     leads.filter((l) => l.status === status);
+  const showLoadFailed = loadFailed && leads.length === 0;
 
   return (
     <div>
@@ -83,6 +116,12 @@ export default function PipelinePage() {
         <h1 className="text-2xl font-bold">Pipeline</h1>
         <AddLeadDialog onLeadCreated={fetchLeads} />
       </div>
+
+      {showLoadFailed && (
+        <p className="text-center py-8 text-muted-foreground">
+          Your leads could not be loaded. Refresh the page to try again.
+        </p>
+      )}
 
       {/* Mobile: vertical stacked columns (no horizontal scroll) */}
       <div className="md:hidden space-y-4">
@@ -136,7 +175,10 @@ export default function PipelinePage() {
       </div>
 
       {/* Desktop: horizontal kanban with drag-and-drop */}
-      <div className="hidden md:flex gap-4 overflow-x-auto pb-4" style={{ minHeight: "calc(100vh - 160px)" }}>
+      <div
+        className={showLoadFailed ? "hidden" : "hidden md:flex gap-4 overflow-x-auto pb-4"}
+        style={{ minHeight: "calc(100vh - 160px)" }}
+      >
         {LEAD_STATUSES.map((status) => {
           const statusLeads = getLeadsByStatus(status.value);
           const isOver = dragOverStatus === status.value;

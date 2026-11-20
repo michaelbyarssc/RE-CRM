@@ -18,6 +18,7 @@ import {
 import { EVENT_TYPES, EVENT_STATUSES, EVENT_TYPE_MAP } from "@/lib/constants";
 import { EventFormDialog } from "@/components/calendar/event-form-dialog";
 import { toast } from "sonner";
+import { apiFetch, apiErrorMessage } from "@/lib/api-fetch";
 import {
   CalendarDays,
   Plus,
@@ -120,7 +121,18 @@ export default function CalendarPage() {
   const handleDeleteEvent = async () => {
     if (!selectedEvent) return;
     if (!confirm("Delete this event?")) return;
-    await fetch(`/api/calendar/${selectedEvent.id}`, { method: "DELETE" });
+    const res = await apiFetch(`/api/calendar/${selectedEvent.id}`, { method: "DELETE" });
+    if (!res.ok) {
+      // Keep the details panel open so the user can try again (unless the event is gone).
+      toast.error(await apiErrorMessage(res, "Could not delete the event"));
+      if (res.status === 404) {
+        // The event is already gone, so close its details too.
+        setDetailOpen(false);
+        setSelectedEvent(null);
+        handleRefresh();
+      }
+      return;
+    }
     toast.success("Event deleted");
     setDetailOpen(false);
     setSelectedEvent(null);
@@ -129,11 +141,24 @@ export default function CalendarPage() {
 
   const handleQuickStatus = async (status: string) => {
     if (!selectedEvent) return;
-    await fetch(`/api/calendar/${selectedEvent.id}`, {
+    const res = await apiFetch(`/api/calendar/${selectedEvent.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
     });
+    if (!res.ok) {
+      // The status shown is only changed after the server accepts it.
+      toast.error(
+        await apiErrorMessage(res, "Could not change the event status", "Refresh the page and try again.")
+      );
+      if (res.status === 404) {
+        // The event is already gone, so close its details too.
+        setDetailOpen(false);
+        setSelectedEvent(null);
+        handleRefresh();
+      }
+      return;
+    }
     toast.success(`Marked as ${status}`);
     setSelectedEvent({ ...selectedEvent, status });
     handleRefresh();

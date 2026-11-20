@@ -21,6 +21,7 @@ import {
 import { LEAD_STATUSES } from "@/lib/constants";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
+import { apiFetch, apiErrorMessage } from "@/lib/api-fetch";
 
 interface AddLeadDialogProps {
   onLeadCreated: () => void;
@@ -61,25 +62,30 @@ export function AddLeadDialog({ onLeadCreated }: AddLeadDialogProps) {
 
     setSubmitting(true);
     try {
-      const res = await fetch("/api/leads", {
+      const res = await apiFetch("/api/leads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       });
 
+      // On a refusal the dialog stays open with everything the user typed.
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "Failed to create lead");
+        toast.error(
+          await apiErrorMessage(
+            res,
+            "Could not create the lead",
+            form.propertyAddress.trim()
+              ? "Check that no field is too long."
+              : "The property address is required."
+          )
+        );
+        return;
       }
 
       toast.success("Lead created successfully");
       setForm(initialForm);
       setOpen(false);
       onLeadCreated();
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to create lead"
-      );
     } finally {
       setSubmitting(false);
     }
@@ -87,11 +93,9 @@ export function AddLeadDialog({ onLeadCreated }: AddLeadDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger>
-        <Button>
-          <Plus className="h-4 w-4 mr-2" />
-          Add Lead
-        </Button>
+      <DialogTrigger render={<Button />}>
+        <Plus className="h-4 w-4 mr-2" />
+        Add Lead
       </DialogTrigger>
       <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>

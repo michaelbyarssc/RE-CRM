@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Dialog,
   DialogContent,
@@ -12,6 +12,16 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { MessageSquarePlus, StickyNote, Trash2, CalendarDays } from "lucide-react";
+import { apiFetch, apiErrorMessage } from "@/lib/api-fetch";
+
+/** The longest note the server accepts (app/api/notes/route.ts, MAX_NOTE_LENGTH). */
+const MAX_NOTE_LENGTH = 10_000;
+
+/** The hint shown when the server refuses a note: names the length limit when the note is over it. */
+export function noteCheck(content: string): string | undefined {
+  if (content.length <= MAX_NOTE_LENGTH) return undefined;
+  return `The note is ${content.length.toLocaleString("en-US")} characters long. A note can be at most ${MAX_NOTE_LENGTH.toLocaleString("en-US")} characters.`;
+}
 
 interface Note {
   id: number;
@@ -30,13 +40,19 @@ export function QuickNoteDialog({
   const [notes, setNotes] = useState<Note[]>([]);
   const [newNote, setNewNote] = useState("");
   const [loading, setLoading] = useState(false);
+  // Set at once on a save, so a second Ctrl+Enter or click before the screen updates is ignored.
+  const savingRef = useRef(false);
 
-  const fetchNotes = async () => {
-    const res = await fetch(`/api/notes?leadId=${leadId}`);
-    if (res.ok) {
-      const data = await res.json();
-      setNotes(data);
+  // Loads the notes. On a refusal the notes already on the screen stay.
+  // `quiet` is for the reload after a refused delete: its message is already shown.
+  const fetchNotes = async ({ quiet = false }: { quiet?: boolean } = {}) => {
+    const res = await apiFetch(`/api/notes?leadId=${leadId}`);
+    if (!res.ok) {
+      if (!quiet) toast.error(await apiErrorMessage(res, "Could not load the notes"));
+      return;
     }
+    const data = await res.json().catch(() => null);
+    if (Array.isArray(data)) setNotes(data);
   };
 
   useEffect(() => {
@@ -46,73 +62,87 @@ export function QuickNoteDialog({
   }, [open, leadId]);
 
   const handleAddNote = async () => {
-    if (!newNote.trim()) return;
+    const content = newNote.trim();
+    if (!content || savingRef.current) return;
+    savingRef.current = true;
     setLoading(true);
     try {
-      const res = await fetch("/api/notes", {
+      const res = await apiFetch("/api/notes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ leadId, content: newNote.trim(), localNow: new Date().toLocaleString("sv-SE", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }).replace(" ", "T") }),
+        body: JSON.stringify({ leadId, content, localNow: new Date().toLocaleString("sv-SE", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }).replace(" ", "T") }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        setNewNote("");
-        fetchNotes();
-        toast.success("Note added");
-        // Show calendar event toast if auto-created
-        if (data.calendarEvent) {
-          const eventDate = new Date(data.calendarEvent.startAt);
-          const typeLabel = data.calendarEvent.eventType === "callback" ? "Callback" :
-            data.calendarEvent.eventType === "appointment" ? "Appointment" : "Follow-up";
-          toast(
-            `📅 ${typeLabel} scheduled`,
-            {
-              description: `${data.calendarEvent.title} — ${eventDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })} at ${eventDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`,
-              action: {
-                label: "View Calendar",
-                onClick: () => window.location.href = "/calendar",
-              },
-            }
-          );
-        }
+      // On a refusal the dialog stays open and the typed note stays in the box.
+      if (!res.ok) {
+        toast.error(await apiErrorMessage(res, "Could not add the note", noteCheck(content)));
+        return;
       }
-    } catch {
-      toast.error("Failed to add note");
+      const data = await res.json().catch(() => ({}));
+      setNewNote("");
+      fetchNotes();
+      toast.success("Note added");
+      // Show calendar event toast if auto-created
+      if (data.calendarEvent) {
+        const eventDate = new Date(data.calendarEvent.startAt);
+        const typeLabel = data.calendarEvent.eventType === "callback" ? "Callback" :
+          data.calendarEvent.eventType === "appointment" ? "Appointment" : "Follow-up";
+        toast(
+          `📅 ${typeLabel} scheduled`,
+          {
+            description: `${data.calendarEvent.title} on ${eventDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })} at ${eventDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`,
+            action: {
+              label: "View Calendar",
+              onClick: () => window.location.href = "/calendar",
+            },
+          }
+        );
+      }
     } finally {
+      savingRef.current = false;
       setLoading(false);
     }
   };
 
   const handleDeleteNote = async (noteId: number) => {
-    const res = await fetch(`/api/notes?id=${noteId}`, { method: "DELETE" });
-    if (res.ok) {
-      fetchNotes();
-      toast.success("Note deleted");
+    const res = await apiFetch(`/api/notes?id=${noteId}`, { method: "DELETE" });
+    // Reload either way so the list shows what is really saved.
+    // After a refusal the reload is quiet, so the message about the delete is the one the user reads.
+    if (!res.ok) {
+      toast.error(await apiErrorMessage(res, "Could not delete the note"));
+      fetchNotes({ quiet: true });
+      return;
     }
+    fetchNotes();
+    toast.success("Note deleted");
   };
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger>
-        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Notes">
-          <StickyNote className="h-3.5 w-3.5 text-muted-foreground" />
-        </Button>
+      <DialogTrigger
+        render={
+          // aria-expanded:bg-transparent keeps the icon plain while its notes dialog is open, as before.
+          <Button variant="ghost" size="sm" className="h-7 w-7 p-0 aria-expanded:bg-transparent" title="Notes" />
+        }
+      >
+        <StickyNote className="h-3.5 w-3.5 text-muted-foreground" />
       </DialogTrigger>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Notes — {leadName}</DialogTitle>
+          <DialogTitle>Notes: {leadName}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-3">
-          {/* Add note */}
+          {/* Add note. The box grows with the text up to 15rem, then scrolls on its own,
+              so the Add Note button below it stays in view with a very long note. */}
           <div className="flex gap-2">
             <Textarea
               placeholder="Add a note..."
               value={newNote}
               onChange={(e) => setNewNote(e.target.value)}
-              className="min-h-[60px]"
+              className="min-h-[60px] max-h-60 overflow-y-auto"
               onKeyDown={(e) => {
                 if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                  if (loading) return;
                   handleAddNote();
                 }
               }}

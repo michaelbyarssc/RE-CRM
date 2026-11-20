@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/select";
 import { EVENT_TYPES, EVENT_STATUSES } from "@/lib/constants";
 import { toast } from "sonner";
+import { apiFetch, apiErrorMessage } from "@/lib/api-fetch";
 import { Plus, Loader2, MapPin, User, UserCheck } from "lucide-react";
 
 interface EventFormData {
@@ -71,7 +72,10 @@ interface EventFormDialogProps {
     leadId: number | null;
     buyerId: number | null;
   } | null;
-  trigger?: React.ReactNode;
+  // One element that draws a native <button>, usually our <Button>. It becomes
+  // the trigger button itself (not wrapped in another <button>, which browsers
+  // do not allow).
+  trigger?: React.ReactElement;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }
@@ -197,7 +201,7 @@ export function EventFormDialog({
 
     setSaving(true);
     try {
-      // Store as local time strings — no UTC conversion
+      // Store as local time strings, no UTC conversion
       const startAt = form.allDay
         ? form.startAt + "T00:00:00"
         : form.startAt + (form.startAt.length === 16 ? ":00" : "");
@@ -220,27 +224,29 @@ export function EventFormDialog({
         buyerId: form.buyerId,
       };
 
-      if (editEvent) {
-        await fetch(`/api/calendar/${editEvent.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        toast.success("Event updated");
-      } else {
-        await fetch("/api/calendar", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        toast.success("Event created");
+      // Edit changes the existing event; otherwise a new event is created.
+      const res = await apiFetch(editEvent ? `/api/calendar/${editEvent.id}` : "/api/calendar", {
+        method: editEvent ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        // Keep the dialog open with everything the user typed.
+        toast.error(
+          await apiErrorMessage(
+            res,
+            "Could not save the event",
+            "Check the title and location (500 characters at most each), the start and end times, and the notes (20,000 characters at most)."
+          )
+        );
+        return;
       }
 
+      toast.success(editEvent ? "Event updated" : "Event created");
       setOpen(false);
       resetForm();
       onEventCreated();
-    } catch {
-      toast.error("Failed to save event");
     } finally {
       setSaving(false);
     }
@@ -249,8 +255,16 @@ export function EventFormDialog({
   const eventTypeInfo = EVENT_TYPES.find((t) => t.value === form.eventType);
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) resetForm(); }}>
-      {trigger && <DialogTrigger>{trigger}</DialogTrigger>}
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        // While a save is running, stay open: if it is refused, the typed values must still be there.
+        if (!v && saving) return;
+        setOpen(v);
+        if (!v) resetForm();
+      }}
+    >
+      {trigger && <DialogTrigger render={trigger} />}
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{editEvent ? "Edit Event" : "New Event"}</DialogTitle>

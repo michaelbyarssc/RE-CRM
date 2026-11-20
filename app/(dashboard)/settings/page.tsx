@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
+import { apiFetch, apiErrorMessage } from "@/lib/api-fetch";
 import { Settings, Eye, EyeOff, Save, Search, Phone, CalendarDays, Check, RefreshCw, Loader2, Unlink, Trash2, TriangleAlert } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
@@ -26,18 +27,6 @@ interface SecretStatus {
 }
 
 const REPLACE_PLACEHOLDER = "Enter a new value to replace it";
-
-// Use the server's own message when it sends one (for example when its
-// encryption setting is missing), otherwise the generic text.
-async function errorMessage(res: Response, fallback: string): Promise<string> {
-  try {
-    const data = await res.json();
-    if (data && typeof data.error === "string" && data.error.trim()) return data.error;
-  } catch {
-    // Not JSON
-  }
-  return fallback;
-}
 
 interface SectionConfig {
   id: string;
@@ -190,21 +179,21 @@ export default function SettingsPage() {
 
     setSaving((prev) => ({ ...prev, [section.id]: true }));
     try {
-      const res = await fetch("/api/settings", {
+      const res = await apiFetch("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      if (res.ok) {
-        toast.success(`${section.title} saved successfully`);
-        // Forget what was typed and show the saved status from the server.
-        clearEdits(section.fields.map((f) => f.key));
-        await fetchSettings();
-      } else {
-        toast.error(await errorMessage(res, "Failed to save settings"));
+      if (!res.ok) {
+        // Nothing was saved. The typed values stay in the fields; the server's
+        // own text (for example a missing encryption setting) is shown when it sends one.
+        toast.error(await apiErrorMessage(res, `Could not save ${section.title}`));
+        return;
       }
-    } catch {
-      toast.error("Failed to save settings");
+      toast.success(`${section.title} saved successfully`);
+      // Forget what was typed and show the saved status from the server.
+      clearEdits(section.fields.map((f) => f.key));
+      await fetchSettings();
     } finally {
       setSaving((prev) => ({ ...prev, [section.id]: false }));
     }
@@ -214,16 +203,15 @@ export default function SettingsPage() {
     if (!confirm(`Remove the saved ${field.label}? The CRM will stop using it until you enter it again.`)) return;
     setRemoving((prev) => ({ ...prev, [field.key]: true }));
     try {
-      const res = await fetch(`/api/settings?key=${encodeURIComponent(field.key)}`, { method: "DELETE" });
-      if (res.ok) {
-        toast.success(`${field.label} removed`);
-        clearEdits([field.key]);
-        await fetchSettings();
-      } else {
-        toast.error(await errorMessage(res, "Failed to remove"));
+      const res = await apiFetch(`/api/settings?key=${encodeURIComponent(field.key)}`, { method: "DELETE" });
+      if (!res.ok) {
+        // The key stays saved and is still shown as saved.
+        toast.error(await apiErrorMessage(res, `Could not remove ${field.label}`, "Refresh the page and try again."));
+        return;
       }
-    } catch {
-      toast.error("Failed to remove");
+      toast.success(`${field.label} removed`);
+      clearEdits([field.key]);
+      await fetchSettings();
     } finally {
       setRemoving((prev) => ({ ...prev, [field.key]: false }));
     }
@@ -237,11 +225,15 @@ export default function SettingsPage() {
     if (!confirm("Disconnect Google Calendar? Events already in the CRM will be kept.")) return;
     setDisconnecting(true);
     try {
-      await fetch("/api/calendar/google", { method: "DELETE" });
+      const res = await apiFetch("/api/calendar/google", { method: "DELETE" });
+      if (!res.ok) {
+        // Still connected as far as we know: show what the server has now.
+        toast.error(await apiErrorMessage(res, "Could not disconnect Google Calendar", "Refresh the page and try again."));
+        await fetchGoogleStatus();
+        return;
+      }
       toast.success("Google Calendar disconnected");
       setGoogleStatus({ connected: false, calendarId: null, syncEnabled: false, lastSyncAt: null });
-    } catch {
-      toast.error("Failed to disconnect");
     } finally {
       setDisconnecting(false);
     }
@@ -250,16 +242,20 @@ export default function SettingsPage() {
   const handleGoogleSync = async () => {
     setSyncing(true);
     try {
-      const res = await fetch("/api/calendar/google/sync", { method: "POST" });
-      const data = await res.json();
-      if (res.ok) {
-        toast.success(`Synced! Pushed: ${data.pushed}, Pulled: ${data.pulled}${data.errors ? `, Errors: ${data.errors}` : ""}`);
-        fetchGoogleStatus();
-      } else {
-        toast.error(data.error || "Sync failed");
+      const res = await apiFetch("/api/calendar/google/sync", { method: "POST" });
+      if (!res.ok) {
+        toast.error(
+          await apiErrorMessage(res, "Could not sync with Google Calendar", "Check that Google Calendar is still connected, then try again.")
+        );
+        await fetchGoogleStatus();
+        return;
       }
-    } catch {
-      toast.error("Sync failed");
+      // The sync is done; the counts are only shown when the answer can be read.
+      const data = await res.json().catch(() => null);
+      toast.success(
+        data ? `Synced! Pushed: ${data.pushed}, Pulled: ${data.pulled}${data.errors ? `, Errors: ${data.errors}` : ""}` : "Synced!"
+      );
+      await fetchGoogleStatus();
     } finally {
       setSyncing(false);
     }
