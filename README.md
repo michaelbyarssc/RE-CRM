@@ -182,6 +182,23 @@ Found on the way and left for later:
 - A `<Button>` sits inside a link on the dialer, lead detail and welcome screens. It causes no error today.
 - Older help texts and comments still contain long dashes.
 
+## Counts are numbers (2026-11-20)
+
+Postgres sends `count(*)` as a bigint (a large-number type), and the database driver hands a bigint to the app as text. The code called it a number anyway, so the server sent `"total": "60"`. On 2026-11-20 a screen change that wanted a real number made this visible: with 60 leads the leads list showed "Leads (50)" and no paging bar, so leads 51 to 60 could not be reached. The Leads screen was repaired the same day (it reads numeric text as a number). This change fixes the cause: the server sends real numbers.
+
+What changed:
+
+- These answers now carry real numbers: `total` from `GET /api/leads`, `total` and `ungeocoded` from `GET /api/leads/geocode`, `remaining` from `POST /api/leads/geocode`, and `enrolledCount` from `GET /api/sequences`. The dashboard counts were numbers already and now use the same code.
+- Nothing looks different on screen. The Leads screen was already repaired, and the map, the sequences screen and the dashboard already showed the right numbers.
+- One hidden fault is gone. The map's test for "no leads" compared the text "0" with the number 0, so it could never match.
+
+The rule for new code:
+
+- Write a count with `count()` from `drizzle-orm`, for example `.select({ count: count() })`. It reads the value as a number. Never write `` sql<number>`count(*)` ``: the `<number>` is only a claim, and the value still arrives as text.
+- `sum()` and `avg()` from `drizzle-orm` are different: they give text on purpose. Add `.mapWith(Number)` to them.
+- In raw SQL (a `sql` template, also inside `db.execute()`), cast the value in the SQL itself: `count(*)::int`, `sum(x)::float8`.
+- `tests/t45-counts-are-numbers.test.mjs` keeps the rule. It checks that each count the server sends today is a number equal to the real count. It also reads the code in `lib/` and `app/` and fails when a count, sum or average is written in a way that comes back as text.
+
 ## Security (2026-11-19)
 
 Findings from the audit of 2026-11-19 and their fixes:
