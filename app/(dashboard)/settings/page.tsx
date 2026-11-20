@@ -26,7 +26,9 @@ interface SecretStatus {
   unreadable?: boolean;
 }
 
-const REPLACE_PLACEHOLDER = "Enter a new value to replace it";
+// Field hints are short so they fit in the box on a small phone (the label above
+// already names the key).
+const REPLACE_PLACEHOLDER = "Paste to replace it";
 
 interface SectionConfig {
   id: string;
@@ -43,9 +45,9 @@ const sections: SectionConfig[] = [
     description: "Connect your skip trace providers to look up owner contact info directly from the CRM.",
     icon: <Search className="h-5 w-5" />,
     fields: [
-      { key: "reiskip_api_key", label: "REISkip API Key", placeholder: "Enter your REISkip API key" },
-      { key: "batchskiptracing_api_key", label: "BatchSkipTracing API Key", placeholder: "Enter your BatchSkipTracing API key" },
-      { key: "skipengine_api_key", label: "SkipEngine API Key", placeholder: "Enter your SkipEngine API key" },
+      { key: "reiskip_api_key", label: "REISkip API Key", placeholder: "Paste your key" },
+      { key: "batchskiptracing_api_key", label: "BatchSkipTracing API Key", placeholder: "Paste your key" },
+      { key: "skipengine_api_key", label: "SkipEngine API Key", placeholder: "Paste your key" },
     ],
   },
   {
@@ -54,8 +56,8 @@ const sections: SectionConfig[] = [
     description: "Configure Twilio credentials for the power dialer and SMS sequences.",
     icon: <Phone className="h-5 w-5" />,
     fields: [
-      { key: "twilio_account_sid", label: "Account SID", placeholder: "Enter your Twilio Account SID" },
-      { key: "twilio_auth_token", label: "Auth Token", placeholder: "Enter your Twilio Auth Token" },
+      { key: "twilio_account_sid", label: "Account SID", placeholder: "Paste your Account SID" },
+      { key: "twilio_auth_token", label: "Auth Token", placeholder: "Paste your Auth Token" },
       { key: "twilio_phone_number", label: "Phone Number", placeholder: "+1234567890", isPublic: true },
     ],
   },

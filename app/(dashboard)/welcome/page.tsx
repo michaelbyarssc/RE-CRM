@@ -181,7 +181,7 @@ export default function WelcomeTourPage() {
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary/10 mb-4">
             <Sparkles className="h-8 w-8 text-primary" />
           </div>
-          <h1 className="text-3xl font-bold tracking-tight">
+          <h1 className="text-3xl font-bold tracking-tight text-balance">
             Welcome to Deal Desk Pro
           </h1>
           <p className="text-muted-foreground mt-2 text-lg max-w-xl mx-auto">

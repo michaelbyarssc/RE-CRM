@@ -144,7 +144,7 @@ export default function MapPage() {
             )}
           </Button>
           <Select value={statusFilter} onValueChange={(v) => v && setStatusFilter(v)}>
-            <SelectTrigger className="w-full sm:w-[160px]">
+            <SelectTrigger className="w-full sm:w-[184px]">
               {(() => {
                 if (statusFilter === "all") return <span>All Statuses</span>;
                 const s = LEAD_STATUSES.find((s) => s.value === statusFilter);

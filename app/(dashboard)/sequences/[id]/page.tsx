@@ -185,6 +185,7 @@ export default function SequenceDetailPage({
             <div>
               <Label>Action Type</Label>
               <Select
+                items={ACTION_TYPES}
                 value={newStep.actionType}
                 onValueChange={(v) => v && setNewStep({ ...newStep, actionType: v })}
               >
