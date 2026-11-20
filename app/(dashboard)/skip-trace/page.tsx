@@ -224,8 +224,8 @@ export default function SkipTracePage() {
                   <Badge variant="outline">
                     {noPhoneLeads.length} leads without phone
                   </Badge>
-                  <Select value={provider} onValueChange={(v) => v && setProvider(v)}>
-                    <SelectTrigger className="w-[180px]">
+                  <Select items={PROVIDERS} value={provider} onValueChange={(v) => v && setProvider(v)}>
+                    <SelectTrigger className="w-[200px]">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -347,7 +347,7 @@ export default function SkipTracePage() {
                     Upload the results CSV from your skip trace provider. We will match
                     leads by property address and update their phone/email.
                   </p>
-                  <Select value={importProvider} onValueChange={(v) => v && setImportProvider(v)}>
+                  <Select items={PROVIDERS} value={importProvider} onValueChange={(v) => v && setImportProvider(v)}>
                     <SelectTrigger className="w-[200px] mb-3">
                       <SelectValue placeholder="Select provider" />
                     </SelectTrigger>

@@ -37,7 +37,7 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
 } from "@/components/ui/dropdown-menu";
-import { LeadStatusBadge, LeadStatusSelect } from "@/components/leads/lead-status-badge";
+import { LeadStatusSelect } from "@/components/leads/lead-status-badge";
 import { AddLeadDialog } from "@/components/leads/add-lead-dialog";
 import { QuickNoteDialog } from "@/components/leads/quick-note-dialog";
 import { TagBadge } from "@/components/tags/tag-badge";
@@ -53,6 +53,73 @@ import {
   Phone,
   Plus,
 } from "lucide-react";
+
+// Where the phone number goes in the leads table. The owner is choosing between
+// these; the two unused branches are removed once the choice is made.
+//   "under-name":       second line under the name, no Phone column (recommended)
+//   "column-when-wide": own Phone column when the list is 1115 px or wider,
+//                       under the name below that
+//   "column":           own Phone column always (the old shape; scrolls
+//                       sideways on a 1280 laptop)
+type PhonePlacement = "under-name" | "column-when-wide" | "column";
+const PHONE_PLACEMENT = "under-name" as PhonePlacement;
+
+// Class names for each table column, by column id. The list region is a
+// container named "leads", so these follow the width the list really has
+// (the side menu always takes 256 px), not the screen width. Name and street
+// get a fixed width and wrap inside it, so long data cannot push other
+// columns out of view.
+const NAME_WIDTH =
+  PHONE_PLACEMENT === "under-name"
+    ? "w-[180px] @min-[1100px]/leads:w-[236px]"
+    : "w-[180px] @min-[1115px]/leads:w-[190px]";
+const ADDRESS_WIDTH =
+  PHONE_PLACEMENT === "under-name"
+    ? "w-[212px] @min-[1100px]/leads:w-[244px]"
+    : "w-[212px] @min-[1115px]/leads:w-[226px]";
+// The inline phone line shows when there is no Phone column, and the
+// Phone column cells show when there is one.
+const INLINE_PHONE_CLASS =
+  PHONE_PLACEMENT === "column-when-wide" ? "@min-[1115px]/leads:hidden" : "";
+const COLUMN_CLASS: Record<string, string> = {
+  phone:
+    PHONE_PLACEMENT === "column-when-wide"
+      ? "hidden @min-[1115px]/leads:table-cell"
+      : "",
+};
+
+const ADDED_DAY = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
+const ADDED_FULL = new Intl.DateTimeFormat("en-US", { dateStyle: "long" });
+
+function AddedDate({ value }: { value: string }) {
+  const date = new Date(value);
+  // The column is plain text, so a row written outside the app may not hold
+  // a readable date; formatting one would throw and take down the page.
+  if (Number.isNaN(date.getTime())) {
+    return <span className="text-xs text-muted-foreground">-</span>;
+  }
+  const otherYear = date.getFullYear() !== new Date().getFullYear();
+  return (
+    <div className="text-xs text-muted-foreground" title={ADDED_FULL.format(date)}>
+      <div>{ADDED_DAY.format(date)}</div>
+      {otherYear && <div>{date.getFullYear()}</div>}
+    </div>
+  );
+}
+
+function PhoneLink({ phone, className = "" }: { phone: string; className?: string }) {
+  return (
+    <a
+      href={`tel:${phone}`}
+      className={`flex w-fit min-w-0 items-start gap-1 text-sm [overflow-wrap:anywhere] hover:underline ${className}`}
+    >
+      {/* Top-aligned and nudged to the middle of the first line, so the icon
+          stays beside the first line when a long value wraps. */}
+      <Phone className="mt-1.5 h-3 w-3 shrink-0" />
+      <span className="min-w-0">{phone}</span>
+    </a>
+  );
+}
 
 interface LeadTag {
   id: number;
@@ -73,6 +140,71 @@ interface Lead {
   status: string;
   tags: LeadTag[];
   createdAt: string;
+}
+
+// The tag chips, the add-tag "+" and its menu, shared by the table and the
+// cards. The caller supplies the wrapping row around them.
+function LeadTagChips({
+  tags,
+  allTags,
+  menuAlign,
+  tailGap,
+  onRemove,
+  onAdd,
+}: {
+  tags: LeadTag[];
+  allTags: LeadTag[];
+  menuAlign: "start" | "end";
+  tailGap: string;
+  onRemove: (tagId: number) => void;
+  onAdd: (tagId: number) => void;
+}) {
+  const tagIds = tags.map((t) => t.id);
+  const available = allTags.filter((t) => !tagIds.includes(t.id));
+  const chip = (tag: LeadTag) => (
+    <TagBadge
+      key={tag.id}
+      name={tag.name}
+      color={tag.color}
+      onRemove={() => onRemove(tag.id)}
+    />
+  );
+  return (
+    <>
+      {tags.slice(0, -1).map(chip)}
+      {/* The last chip and the "+" travel together, so the "+" never sits
+          alone on a line. The pair can still wrap inside itself, so a long
+          last tag cannot force the row wider than its box. */}
+      {(tags.length > 0 || available.length > 0) && (
+        <div data-slot="lead-tags-tail" className={`flex flex-wrap items-center ${tailGap}`}>
+          {tags.slice(-1).map(chip)}
+          {available.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger>
+                <button
+                  aria-label="Add tag"
+                  className="inline-flex items-center justify-center w-5 h-5 rounded border border-dashed border-muted-foreground/40 text-muted-foreground hover:border-primary hover:text-primary transition-colors"
+                >
+                  <Plus className="h-3 w-3" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align={menuAlign}>
+                {available.map((tag) => (
+                  <DropdownMenuItem key={tag.id} onClick={() => onAdd(tag.id)}>
+                    <span
+                      className="w-2 h-2 rounded-full mr-2"
+                      style={{ backgroundColor: tag.color }}
+                    />
+                    {tag.name}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
+      )}
+    </>
+  );
 }
 
 export default function LeadsPage() {
@@ -190,7 +322,6 @@ export default function LeadsPage() {
           onCheckedChange={(value) => row.toggleSelected(!!value)}
         />
       ),
-      size: 40,
     },
     {
       accessorKey: "name",
@@ -199,12 +330,23 @@ export default function LeadsPage() {
         const lead = row.original;
         const name = [lead.firstName, lead.lastName].filter(Boolean).join(" ");
         return (
-          <button
-            onClick={() => router.push(`/leads/${lead.id}`)}
-            className="font-medium hover:underline text-left"
-          >
-            {name || "Unknown"}
-          </button>
+          <div className={`${NAME_WIDTH} whitespace-normal [overflow-wrap:anywhere]`}>
+            <button
+              onClick={() => router.push(`/leads/${lead.id}`)}
+              className="font-medium hover:underline text-left"
+            >
+              {name || "Unknown"}
+            </button>
+            {PHONE_PLACEMENT !== "column" && (
+              <div data-slot="lead-phone-inline" className={INLINE_PHONE_CLASS}>
+                {lead.phone ? (
+                  <PhoneLink phone={lead.phone} />
+                ) : (
+                  <span className="text-sm text-muted-foreground">No phone</span>
+                )}
+              </div>
+            )}
+          </div>
         );
       },
     },
@@ -214,7 +356,7 @@ export default function LeadsPage() {
       cell: ({ row }) => {
         const lead = row.original;
         return (
-          <div>
+          <div className={`${ADDRESS_WIDTH} whitespace-normal [overflow-wrap:anywhere]`}>
             <div className="text-sm">{lead.propertyAddress}</div>
             <div className="text-xs text-muted-foreground">
               {[lead.propertyCity, lead.propertyState, lead.propertyZip]
@@ -225,21 +367,22 @@ export default function LeadsPage() {
         );
       },
     },
-    {
-      accessorKey: "phone",
-      header: "Phone",
-      cell: ({ row }) => {
-        const phone = row.original.phone;
-        return phone ? (
-          <a href={`tel:${phone}`} className="flex items-center gap-1 text-sm hover:underline">
-            <Phone className="h-3 w-3" />
-            {phone}
-          </a>
-        ) : (
-          <span className="text-muted-foreground text-sm">-</span>
-        );
-      },
-    },
+    ...(PHONE_PLACEMENT === "under-name"
+      ? []
+      : [
+          {
+            accessorKey: "phone",
+            header: "Phone",
+            cell: ({ row }) => {
+              const phone = row.original.phone;
+              return phone ? (
+                <PhoneLink phone={phone} />
+              ) : (
+                <span className="text-muted-foreground text-sm">-</span>
+              );
+            },
+          } satisfies ColumnDef<Lead>,
+        ]),
     {
       accessorKey: "status",
       header: "Status",
@@ -253,67 +396,36 @@ export default function LeadsPage() {
     {
       accessorKey: "tags",
       header: "Tags",
-      meta: { className: "hidden md:table-cell" },
       cell: ({ row }) => {
         const lead = row.original;
-        const leadTagIds = lead.tags.map((t) => t.id);
-        const availableTags = allTags.filter((t) => !leadTagIds.includes(t.id));
         return (
           <div className="flex gap-1 flex-wrap items-center">
-            {lead.tags.map((tag) => (
-              <TagBadge
-                key={tag.id}
-                name={tag.name}
-                color={tag.color}
-                onRemove={() => handleRemoveTag(lead.id, tag.id)}
-              />
-            ))}
-            {availableTags.length > 0 && (
-              <DropdownMenu>
-                <DropdownMenuTrigger>
-                  <button className="inline-flex items-center justify-center w-5 h-5 rounded border border-dashed border-muted-foreground/40 text-muted-foreground hover:border-primary hover:text-primary transition-colors">
-                    <Plus className="h-3 w-3" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  {availableTags.map((tag) => (
-                    <DropdownMenuItem
-                      key={tag.id}
-                      onClick={() => handleAddTag(lead.id, tag.id)}
-                    >
-                      <span
-                        className="w-2 h-2 rounded-full mr-2"
-                        style={{ backgroundColor: tag.color }}
-                      />
-                      {tag.name}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
+            <LeadTagChips
+              tags={lead.tags}
+              allTags={allTags}
+              menuAlign="start"
+              tailGap="gap-1"
+              onRemove={(tagId) => handleRemoveTag(lead.id, tagId)}
+              onAdd={(tagId) => handleAddTag(lead.id, tagId)}
+            />
           </div>
         );
       },
     },
     {
       id: "notes",
-      header: "Notes",
+      // Kept for screen readers; the column is only as wide as its button.
+      header: () => <span className="sr-only">Notes</span>,
       cell: ({ row }) => {
         const lead = row.original;
         const name = [lead.firstName, lead.lastName].filter(Boolean).join(" ") || "Unknown";
         return <QuickNoteDialog leadId={lead.id} leadName={name} />;
       },
-      size: 60,
     },
     {
       accessorKey: "createdAt",
       header: "Added",
-      meta: { className: "hidden md:table-cell" },
-      cell: ({ row }) => (
-        <span className="text-xs text-muted-foreground">
-          {new Date(row.original.createdAt).toLocaleDateString()}
-        </span>
-      ),
+      cell: ({ row }) => <AddedDate value={row.original.createdAt} />,
     },
   ];
 
@@ -356,7 +468,7 @@ export default function LeadsPage() {
             setPage(1);
           }}
         >
-          <SelectTrigger className="w-full sm:w-[160px]">
+          <SelectTrigger className="w-full sm:w-[184px]">
             {(() => {
               if (statusFilter === "all") return <span>All Statuses</span>;
               const s = LEAD_STATUSES.find((s) => s.value === statusFilter);
@@ -458,176 +570,157 @@ export default function LeadsPage() {
         )}
       </div>
 
-      {/* Mobile Card View */}
-      <div className="md:hidden space-y-3">
-        {loading ? (
-          <div className="text-center py-8 text-muted-foreground">Loading...</div>
-        ) : leads.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground">
-            <p>No leads found</p>
-            <p className="text-sm mt-1">
-              Add a lead manually or{" "}
-              <Button variant="link" className="p-0 h-auto" onClick={() => router.push("/leads/import")}>
-                import a CSV
-              </Button>
-            </p>
-          </div>
-        ) : (
-          leads.map((lead, idx) => {
-            const name = [lead.firstName, lead.lastName].filter(Boolean).join(" ") || "Unknown";
-            const isSelected = rowSelection[idx] === true;
-            return (
-              <div
-                key={lead.id}
-                className={`border rounded-lg p-3 space-y-2 ${isSelected ? "bg-primary/5 border-primary" : ""}`}
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Checkbox
-                      checked={isSelected}
-                      onCheckedChange={(value) => {
-                        setRowSelection((prev) => ({ ...prev, [idx]: !!value }));
-                      }}
-                    />
-                    <button
-                      onClick={() => router.push(`/leads/${lead.id}`)}
-                      className="font-medium hover:underline text-left truncate"
-                    >
-                      {name}
-                    </button>
+      {/* The list region is one container, so its shape follows the width the
+          list really has: one column of cards under 700 px, two columns up to
+          939 px, the table from 940 px. */}
+      <div className="@container/leads">
+        {/* Card View */}
+        <div
+          data-leads-view="cards"
+          className="grid grid-cols-1 gap-3 @min-[700px]/leads:grid-cols-2 @min-[940px]/leads:hidden"
+        >
+          {loading ? (
+            <div className="col-span-full text-center py-8 text-muted-foreground">Loading...</div>
+          ) : leads.length === 0 ? (
+            <div className="col-span-full text-center py-8 text-muted-foreground">
+              <p>No leads found</p>
+              <p className="text-sm mt-1">
+                Add a lead manually or{" "}
+                <Button variant="link" className="p-0 h-auto" onClick={() => router.push("/leads/import")}>
+                  import a CSV
+                </Button>
+              </p>
+            </div>
+          ) : (
+            leads.map((lead, idx) => {
+              const name = [lead.firstName, lead.lastName].filter(Boolean).join(" ") || "Unknown";
+              const isSelected = rowSelection[idx] === true;
+              return (
+                <div
+                  key={lead.id}
+                  className={`min-w-0 border rounded-lg p-3 space-y-2 ${isSelected ? "bg-primary/5 border-primary" : ""}`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={(value) => {
+                          setRowSelection((prev) => ({ ...prev, [idx]: !!value }));
+                        }}
+                      />
+                      <button
+                        onClick={() => router.push(`/leads/${lead.id}`)}
+                        className="font-medium hover:underline text-left truncate"
+                      >
+                        {name}
+                      </button>
+                    </div>
+                    <div className="shrink-0">
+                      <QuickNoteDialog leadId={lead.id} leadName={name} />
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <QuickNoteDialog leadId={lead.id} leadName={name} />
-                    <LeadStatusSelect
-                      status={lead.status}
-                      onStatusChange={(s) => handleStatusChange(lead.id, s)}
-                    />
+                  <div className="text-sm text-muted-foreground pl-6 [overflow-wrap:anywhere]">
+                    <div>{lead.propertyAddress}</div>
+                    <div className="text-xs">
+                      {[lead.propertyCity, lead.propertyState, lead.propertyZip]
+                        .filter(Boolean)
+                        .join(", ")}
+                    </div>
                   </div>
-                </div>
-                <div className="text-sm text-muted-foreground pl-6">
-                  <div>{lead.propertyAddress}</div>
-                  <div className="text-xs">
-                    {[lead.propertyCity, lead.propertyState, lead.propertyZip]
-                      .filter(Boolean)
-                      .join(", ")}
-                  </div>
-                </div>
-                <div className="flex items-center justify-between pl-6">
-                  <div>
+                  <div className="pl-6">
                     {lead.phone ? (
-                      <a href={`tel:${lead.phone}`} className="flex items-center gap-1 text-sm hover:underline">
-                        <Phone className="h-3 w-3" />
-                        {lead.phone}
-                      </a>
+                      <PhoneLink phone={lead.phone} />
                     ) : (
-                      <span className="text-xs text-muted-foreground">No phone</span>
+                      <span className="text-sm text-muted-foreground">No phone</span>
                     )}
                   </div>
-                  <div className="flex gap-1 flex-wrap items-center">
-                    {lead.tags.map((tag) => (
-                      <TagBadge
-                        key={tag.id}
-                        name={tag.name}
-                        color={tag.color}
-                        onRemove={() => handleRemoveTag(lead.id, tag.id)}
+                  <div className="flex flex-wrap items-center gap-x-1 gap-y-2 pl-6">
+                    <div className="mr-1">
+                      <LeadStatusSelect
+                        status={lead.status}
+                        onStatusChange={(s) => handleStatusChange(lead.id, s)}
                       />
-                    ))}
-                    {(() => {
-                      const leadTagIds = lead.tags.map((t) => t.id);
-                      const available = allTags.filter((t) => !leadTagIds.includes(t.id));
-                      if (available.length === 0) return null;
-                      return (
-                        <DropdownMenu>
-                          <DropdownMenuTrigger>
-                            <button className="inline-flex items-center justify-center w-5 h-5 rounded border border-dashed border-muted-foreground/40 text-muted-foreground hover:border-primary hover:text-primary transition-colors">
-                              <Plus className="h-3 w-3" />
-                            </button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            {available.map((tag) => (
-                              <DropdownMenuItem
-                                key={tag.id}
-                                onClick={() => handleAddTag(lead.id, tag.id)}
-                              >
-                                <span
-                                  className="w-2 h-2 rounded-full mr-2"
-                                  style={{ backgroundColor: tag.color }}
-                                />
-                                {tag.name}
-                              </DropdownMenuItem>
-                            ))}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      );
-                    })()}
+                    </div>
+                    <LeadTagChips
+                      tags={lead.tags}
+                      allTags={allTags}
+                      menuAlign="end"
+                      tailGap="gap-x-1 gap-y-2"
+                      onRemove={(tagId) => handleRemoveTag(lead.id, tagId)}
+                      onAdd={(tagId) => handleAddTag(lead.id, tagId)}
+                    />
                   </div>
                 </div>
-              </div>
-            );
-          })
-        )}
-      </div>
+              );
+            })
+          )}
+        </div>
 
-      {/* Desktop Table View */}
-      <div className="hidden md:block border rounded-md">
-        <Table>
-          <TableHeader>
-            {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <TableHead key={header.id}>
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(
-                          header.column.columnDef.header,
-                          header.getContext()
-                        )}
-                  </TableHead>
-                ))}
-              </TableRow>
-            ))}
-          </TableHeader>
-          <TableBody>
-            {loading ? (
-              <TableRow>
-                <TableCell colSpan={columns.length} className="text-center py-8">
-                  Loading...
-                </TableCell>
-              </TableRow>
-            ) : leads.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={columns.length} className="text-center py-8">
-                  <div className="text-muted-foreground">
-                    <p>No leads found</p>
-                    <p className="text-sm mt-1">
-                      Add a lead manually or{" "}
-                      <Button
-                        variant="link"
-                        className="p-0 h-auto"
-                        onClick={() => router.push("/leads/import")}
-                      >
-                        import a CSV
-                      </Button>
-                    </p>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ) : (
-              table.getRowModel().rows.map((row) => (
-                <TableRow key={row.id}>
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext()
-                      )}
-                    </TableCell>
+        {/* Table View */}
+        <div data-leads-view="table" className="hidden @min-[940px]/leads:block border rounded-md">
+          <Table>
+            <TableHeader>
+              {table.getHeaderGroups().map((headerGroup) => (
+                <TableRow key={headerGroup.id}>
+                  {headerGroup.headers.map((header) => (
+                    <TableHead key={header.id} className={COLUMN_CLASS[header.column.id]}>
+                      {header.isPlaceholder
+                        ? null
+                        : flexRender(
+                            header.column.columnDef.header,
+                            header.getContext()
+                          )}
+                    </TableHead>
                   ))}
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+              ))}
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={columns.length} className="text-center py-8">
+                    Loading...
+                  </TableCell>
+                </TableRow>
+              ) : leads.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={columns.length} className="text-center py-8">
+                    <div className="text-muted-foreground">
+                      <p>No leads found</p>
+                      <p className="text-sm mt-1">
+                        Add a lead manually or{" "}
+                        <Button
+                          variant="link"
+                          className="p-0 h-auto"
+                          onClick={() => router.push("/leads/import")}
+                        >
+                          import a CSV
+                        </Button>
+                      </p>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                table.getRowModel().rows.map((row) => (
+                  <TableRow key={row.id}>
+                    {row.getVisibleCells().map((cell) => (
+                      <TableCell
+                        key={cell.id}
+                        data-col={cell.column.id === "phone" ? "phone" : undefined}
+                        className={COLUMN_CLASS[cell.column.id]}
+                      >
+                        {flexRender(
+                          cell.column.columnDef.cell,
+                          cell.getContext()
+                        )}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
       </div>
 
       {/* Pagination */}

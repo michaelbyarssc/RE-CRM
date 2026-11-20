@@ -245,6 +245,7 @@ export function AddLeadDialog({ onLeadCreated }: AddLeadDialogProps) {
             <div className="space-y-2">
               <Label htmlFor="status">Status</Label>
               <Select
+                items={LEAD_STATUSES}
                 value={form.status}
                 onValueChange={(v) => v && updateField("status", v)}
               >

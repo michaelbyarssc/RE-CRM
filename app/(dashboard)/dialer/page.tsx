@@ -193,7 +193,7 @@ export default function DialerPage() {
       )}
 
       {/* Lead list with click-to-call */}
-      <div className="space-y-2">
+      <div className="@container space-y-2">
         {leads.map((lead, i) => (
           <Card
             key={lead.id}
@@ -201,14 +201,16 @@ export default function DialerPage() {
               powerMode && i === currentIndex ? "border-primary" : "hover:bg-accent"
             }`}
           >
-            <CardContent className="flex items-center justify-between py-3">
-              <div>
+            {/* On a narrow list (phones) every card puts the call button under the
+                name and address, so the address is never squeezed against it. */}
+            <CardContent className="flex flex-col gap-3 py-3 @min-[440px]:flex-row @min-[440px]:items-center @min-[440px]:justify-between">
+              <div className="min-w-0">
                 <p className="font-medium text-sm">
                   {[lead.firstName, lead.lastName].filter(Boolean).join(" ") || "Unknown"}
                 </p>
                 <p className="text-xs text-muted-foreground">{lead.propertyAddress}</p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex shrink-0 items-center justify-between gap-2 @min-[440px]:justify-start">
                 {lead.phone && (
                   <a href={`tel:${lead.phone}`} onClick={(e) => e.stopPropagation()}>
                     <Button size="sm" variant="outline">
@@ -238,7 +240,7 @@ export default function DialerPage() {
             )}
             <div>
               <Label>Disposition</Label>
-              <Select value={disposition} onValueChange={(v) => v && setDisposition(v)}>
+              <Select items={DISPOSITIONS} value={disposition} onValueChange={(v) => v && setDisposition(v)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>

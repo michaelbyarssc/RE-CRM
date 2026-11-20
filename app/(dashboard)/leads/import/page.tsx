@@ -176,6 +176,7 @@ export default function ImportPage() {
                     </div>
                     <div className="text-muted-foreground">→</div>
                     <Select
+                      items={LEAD_FIELD_OPTIONS}
                       value={mapping[header] || "skip"}
                       onValueChange={(val) =>
                         val && setMapping((prev) => ({ ...prev, [header]: val }))

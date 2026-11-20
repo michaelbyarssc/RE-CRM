@@ -153,7 +153,7 @@ export default function CalendarPage() {
             <CalendarDays className="h-6 w-6" />
             Calendar
           </h1>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-muted-foreground text-balance">
             Schedule appointments, callbacks, and follow-ups
           </p>
         </div>

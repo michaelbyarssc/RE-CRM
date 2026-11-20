@@ -156,7 +156,7 @@ export function MapView({
 
         // Popup for buyer zone. Every value goes through the html tag (escaped).
         circle.bindPopup(html`
-          <div style="min-width: 180px; font-family: system-ui, sans-serif;">
+          <div style="min-width: 180px; font-family: inherit;">
             <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
               <div style="width: 12px; height: 12px; border-radius: 50%; background: ${color}; border: 2px solid white; box-shadow: 0 1px 3px rgba(0,0,0,0.2);"></div>
               <strong style="font-size: 13px;">🏠 ${buyer.name}</strong>
@@ -241,7 +241,7 @@ export function MapView({
 
       // Every value goes through the html tag (escaped).
       marker.bindPopup(html`
-        <div style="min-width: 220px; font-family: system-ui, sans-serif;">
+        <div style="min-width: 220px; font-family: inherit;">
           <strong style="font-size: 14px;">${name}</strong><br/>
           <span style="color: #666; font-size: 12px;">${lead.propertyAddress}</span><br/>
           <span style="color: #666; font-size: 12px;">${[lead.propertyCity, lead.propertyState, lead.propertyZip].filter(Boolean).join(", ")}</span><br/>

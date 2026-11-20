@@ -34,10 +34,33 @@ export function LeadStatusSelect({
   const currentStatus = LEAD_STATUSES.find((s) => s.value === status);
   return (
     <Select value={status} onValueChange={(v) => v && onStatusChange(v)}>
-      <SelectTrigger className="w-[140px] h-8 text-xs">
-        <span className="flex items-center gap-2">
-          <span className={`w-2 h-2 rounded-full ${currentStatus?.color ?? ""}`} />
-          {currentStatus?.label ?? status}
+      <SelectTrigger className="h-8 text-xs">
+        {/* Every label sits invisibly in the same spot, so the box is always as
+            wide as the longest label in whatever font loads, and every status
+            box has the same width. The shown label is laid over them, so an
+            unknown status value cannot widen the box; it gets three dots instead. */}
+        <span className="relative grid">
+          {LEAD_STATUSES.map((s) => (
+            <span
+              key={s.value}
+              aria-hidden="true"
+              className="invisible col-start-1 row-start-1 flex items-center gap-2"
+            >
+              <span className="w-2 h-2 rounded-full" />
+              {s.label}
+            </span>
+          ))}
+          <span className="absolute inset-0 flex min-w-0 items-center gap-2">
+            <span
+              className={`w-2 h-2 shrink-0 rounded-full ${currentStatus?.color ?? "bg-muted-foreground"}`}
+            />
+            <span
+              className="min-w-0 truncate"
+              title={currentStatus ? undefined : status}
+            >
+              {currentStatus?.label ?? status}
+            </span>
+          </span>
         </span>
       </SelectTrigger>
       <SelectContent>

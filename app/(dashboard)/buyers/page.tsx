@@ -36,6 +36,22 @@ interface Buyer {
   createdAt: string;
 }
 
+// The areas text with the "On Map" badge (or "Map Areas" button) glued to its
+// last word, so the badge never drops onto a line of its own.
+function AreasLine({ areas, children }: { areas: string; children: React.ReactNode }) {
+  const words = `Areas: ${areas}`.trim().split(/\s+/);
+  const last = words.pop();
+  return (
+    <span>
+      {words.join(" ")}{" "}
+      <span className="whitespace-nowrap">
+        {last}{" "}
+        {children}
+      </span>
+    </span>
+  );
+}
+
 export default function BuyersPage() {
   const [buyers, setBuyers] = useState<Buyer[]>([]);
   const [open, setOpen] = useState(false);
@@ -201,9 +217,12 @@ export default function BuyersPage() {
           </CardContent>
         </Card>
       ) : (
-        <>
-          {/* Mobile card view */}
-          <div className="md:hidden space-y-3">
+        // Cards or table by the width the list really has (the side menu takes
+        // 256 px), not by the screen width. With ordinary data the table needs
+        // about 850 px, so it shows from 900 px; narrower lists get the cards.
+        <div className="@container">
+          {/* Card view */}
+          <div data-buyers-view="cards" className="@min-[900px]:hidden grid gap-3 @min-[600px]:grid-cols-2">
             {buyers.map((buyer) => {
               const criteria = buyer.buyCriteria ? JSON.parse(buyer.buyCriteria) : null;
               return (
@@ -235,23 +254,24 @@ export default function BuyersPage() {
                     {criteria && (criteria.areas || criteria.priceRange) && (
                       <div className="mt-3 pt-3 border-t text-sm text-muted-foreground">
                         {criteria.areas && (
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <MapPin className="h-3.5 w-3.5" />
-                            <span>Areas: {criteria.areas}</span>
-                            {criteria.geocodedAreas?.length > 0 ? (
-                              <Badge variant="outline" className="text-base text-green-600 border-green-300">
-                                On Map
-                              </Badge>
-                            ) : (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-5 text-base px-1.5"
-                                onClick={(e) => { e.stopPropagation(); handleGeocodeAreas(buyer.id); }}
-                              >
-                                <MapPin className="h-3 w-3 mr-1" />Map Areas
-                              </Button>
-                            )}
+                          <div className="flex items-start gap-1.5">
+                            <MapPin className="h-3.5 w-3.5 mt-[5px] shrink-0" />
+                            <AreasLine areas={criteria.areas}>
+                              {criteria.geocodedAreas?.length > 0 ? (
+                                <Badge variant="outline" className="text-base text-green-600 border-green-300 align-[-2px]">
+                                  On Map
+                                </Badge>
+                              ) : (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-5 text-base px-1.5 align-[-2px]"
+                                  onClick={(e) => { e.stopPropagation(); handleGeocodeAreas(buyer.id); }}
+                                >
+                                  <MapPin className="h-3 w-3 mr-1" />Map Areas
+                                </Button>
+                              )}
+                            </AreasLine>
                           </div>
                         )}
                         {criteria.priceRange && <p>Price: {criteria.priceRange}</p>}
@@ -266,8 +286,8 @@ export default function BuyersPage() {
             })}
           </div>
 
-          {/* Desktop table view */}
-          <div className="hidden md:block border rounded-md">
+          {/* Table view */}
+          <div data-buyers-view="table" className="hidden @min-[900px]:block border rounded-md">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -285,7 +305,7 @@ export default function BuyersPage() {
                   return (
                     <TableRow key={buyer.id}>
                       <TableCell className="font-medium">{buyer.name}</TableCell>
-                      <TableCell>{buyer.company || "-"}</TableCell>
+                      <TableCell className="whitespace-normal">{buyer.company || "-"}</TableCell>
                       <TableCell>
                         <div className="space-y-1">
                           {buyer.phone && (
@@ -300,33 +320,34 @@ export default function BuyersPage() {
                           )}
                         </div>
                       </TableCell>
-                      <TableCell className="text-sm">
+                      <TableCell className="text-sm whitespace-normal min-w-60">
                         {criteria ? (
                           <div>
                             {criteria.areas && (
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <span>Areas: {criteria.areas}</span>
-                                {criteria.geocodedAreas?.length > 0 ? (
-                                  <Badge variant="outline" className="text-base text-green-600 border-green-300">
-                                    On Map
-                                  </Badge>
-                                ) : (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-5 text-base px-1.5"
-                                    onClick={() => handleGeocodeAreas(buyer.id)}
-                                  >
-                                    <MapPin className="h-3 w-3 mr-1" />Map Areas
-                                  </Button>
-                                )}
+                              <div>
+                                <AreasLine areas={criteria.areas}>
+                                  {criteria.geocodedAreas?.length > 0 ? (
+                                    <Badge variant="outline" className="text-base text-green-600 border-green-300 align-[-2px]">
+                                      On Map
+                                    </Badge>
+                                  ) : (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-5 text-base px-1.5 align-[-2px]"
+                                      onClick={() => handleGeocodeAreas(buyer.id)}
+                                    >
+                                      <MapPin className="h-3 w-3 mr-1" />Map Areas
+                                    </Button>
+                                  )}
+                                </AreasLine>
                               </div>
                             )}
                             {criteria.priceRange && <div>Price: {criteria.priceRange}</div>}
                           </div>
                         ) : "-"}
                       </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{buyer.notes || "-"}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground whitespace-normal text-balance">{buyer.notes || "-"}</TableCell>
                       <TableCell>
                         <button onClick={() => handleDelete(buyer.id)} className="text-muted-foreground hover:text-destructive">
                           <Trash2 className="h-4 w-4" />
@@ -338,7 +359,7 @@ export default function BuyersPage() {
               </TableBody>
             </Table>
           </div>
-        </>
+        </div>
       )}
     </div>
   );

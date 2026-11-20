@@ -66,6 +66,7 @@ export function CalendarView({
       classNames: [
         isCancelled ? "opacity-50 line-through" : "",
         isCompleted ? "opacity-70" : "",
+        e.allDay === 1 ? "calendar-all-day" : "",
       ].filter(Boolean),
       extendedProps: {
         eventType: e.eventType,
@@ -76,7 +77,7 @@ export function CalendarView({
   });
 
   return (
-    <div className="calendar-wrapper bg-card border rounded-lg p-2 sm:p-4">
+    <div className="calendar-wrapper @container bg-card border rounded-lg p-2 sm:p-4">
       <style>{`
         .calendar-wrapper .fc {
           --fc-border-color: var(--border);
@@ -146,11 +147,70 @@ export function CalendarView({
           font-size: 0.7rem;
           color: var(--muted-foreground);
         }
-        @media (max-width: 640px) {
+        /* Month view, wide calendar: the time is never squeezed and a long
+           title wraps under itself instead of being cut. */
+        @container (min-width: 640px) {
+          .calendar-wrapper .fc .fc-dayGridMonth-view .fc-daygrid-event {
+            white-space: normal;
+          }
+          .calendar-wrapper .fc .fc-dayGridMonth-view .fc-event-main-frame {
+            align-items: flex-start;
+          }
+          .calendar-wrapper .fc .fc-dayGridMonth-view .fc-event-time {
+            flex-shrink: 0;
+            max-width: none;
+            overflow: visible;
+          }
+          .calendar-wrapper .fc .fc-dayGridMonth-view .fc-event-title {
+            overflow: visible;
+            overflow-wrap: anywhere;
+          }
+        }
+        /* Month view, narrow calendar (tablet with the side menu, phone): a day is
+           too narrow for words, so each event is a colored chip with its time only.
+           The title is still in the tooltip, on tap, and in the List view. An
+           all-day event has no time, so it shows as a thin colored marker. */
+        @container (max-width: 639.98px) {
           .calendar-wrapper .fc .fc-toolbar {
             flex-direction: column;
             gap: 8px;
           }
+          .calendar-wrapper .fc .fc-dayGridMonth-view .fc-daygrid-event {
+            padding: 1px 2px;
+            margin-left: 1px;
+            margin-right: 1px;
+          }
+          .calendar-wrapper .fc .fc-dayGridMonth-view .fc-event-main-frame {
+            justify-content: center;
+          }
+          .calendar-wrapper .fc .fc-dayGridMonth-view .fc-event-title-container {
+            display: none;
+          }
+          .calendar-wrapper .fc .fc-dayGridMonth-view .fc-event-time {
+            max-width: none;
+            margin: 0;
+            overflow: visible;
+            white-space: normal;
+            overflow-wrap: anywhere;
+            text-align: center;
+          }
+          .calendar-wrapper .fc .fc-dayGridMonth-view .calendar-all-day {
+            height: 8px;
+            padding: 0;
+          }
+          .calendar-wrapper .fc .fc-dayGridMonth-view .calendar-all-day .fc-event-main {
+            display: none;
+          }
+          .calendar-wrapper .fc .fc-dayGridMonth-view .fc-daygrid-more-link {
+            float: none;
+            display: block;
+            text-align: center;
+          }
+          .calendar-wrapper .fc .fc-dayGridMonth-view .calendar-more-word {
+            display: none;
+          }
+        }
+        @media (max-width: 640px) {
           .calendar-wrapper .fc .fc-toolbar-title {
             font-size: 1rem;
           }
@@ -170,6 +230,10 @@ export function CalendarView({
           right: "dayGridMonth,timeGridWeek,timeGridDay,listWeek",
         }}
         events={fcEvents}
+        eventDidMount={(info) => {
+          // Tooltip with the time and the full title (the narrow month view hides the title).
+          info.el.title = [info.timeText, info.event.title].filter(Boolean).join(" ");
+        }}
         eventClick={(info) => {
           info.jsEvent.preventDefault();
           onEventClick(Number(info.event.id));
@@ -186,6 +250,13 @@ export function CalendarView({
         height="auto"
         contentHeight="auto"
         dayMaxEvents={3}
+        // "+2 more"; the word is hidden in the narrow month view, where only "+2" fits.
+        moreLinkContent={(arg) => (
+          <>
+            +{arg.num}
+            <span className="calendar-more-word"> more</span>
+          </>
+        )}
         nowIndicator
         selectable
         editable={false}
