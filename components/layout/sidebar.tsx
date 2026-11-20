@@ -47,6 +47,49 @@ const navItems = [
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
+// True once this page has signed the user out. A browser can keep the page in
+// memory and show it again on Back, so it must never be shown again as it was.
+let signedOutOnThisPage = false;
+
+// The Supabase sign-in cookie: "sb-<project>-auth-token", split into ".0", ".1"
+// and so on when it is long. It is readable here (not httpOnly).
+function hasSignInCookie() {
+  return /(?:^|;\s*)sb-[^=;]+-auth-token(?:\.\d+)?=[^;]/.test(document.cookie);
+}
+
+// Hide the page and load it again from the server, which sends a signed-out
+// visitor to /login.
+function reloadFromServer() {
+  document.documentElement.style.visibility = "hidden";
+  window.location.reload();
+}
+
+// The proxy never lets a signed-out visitor reach a page with this sidebar.
+// So if one shows up without the sign-in cookie, or after this page signed
+// out, the browser took it from memory or from its cache (for example on the
+// Back button after Sign Out) and it may still show the user's data.
+function reloadIfSignedOut(event?: PageTransitionEvent) {
+  if (["/login", "/privacy", "/terms"].includes(window.location.pathname)) return;
+  if (!signedOutOnThisPage && hasSignInCookie()) return;
+  // Restored from memory (the Back or Forward button): always ask the server.
+  if (event?.persisted) return reloadFromServer();
+  // A page that came from a reload came from the server, and the proxy only
+  // serves it to a signed-in visitor. Reloading again could loop forever if
+  // the cookie check above were ever wrong, so stop here.
+  const nav = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
+  if (nav?.type === "reload") return;
+  // Otherwise the browser took the page from its cache without asking the server.
+  reloadFromServer();
+}
+
+// Runs when this code is first loaded in the browser, before React starts the
+// page and before the page asks for its data. "pageshow" also fires when a page
+// is restored from memory, which runs no code again.
+if (typeof window !== "undefined") {
+  reloadIfSignedOut();
+  window.addEventListener("pageshow", reloadIfSignedOut);
+}
+
 function SidebarContent({
   pathname,
   userEmail,
@@ -163,8 +206,11 @@ export function Sidebar() {
     // refresh made the router fetch again every sidebar link still on screen
     // (prefetching). The proxy sends those signed-out requests to /login,
     // which has no data for them, so the browser logged a 404 for each one.
-    // A full page load also drops everything the signed-out user had loaded
-    // in this tab, so the Back button asks the server again and lands on /login.
+    // A browser may keep this page in memory and show it again on Back. It is
+    // hidden first, so a kept copy is blank, and the "pageshow" check above
+    // reloads it from the server, which sends the visitor to /login.
+    signedOutOnThisPage = true;
+    document.documentElement.style.visibility = "hidden";
     // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- a full page load is the point here, see above
     window.location.assign("/login");
   };
