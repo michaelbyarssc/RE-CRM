@@ -71,8 +71,9 @@ interface EventFormDialogProps {
     leadId: number | null;
     buyerId: number | null;
   } | null;
-  // One element, usually a <Button>. It becomes the trigger button itself
-  // (not wrapped in another <button>, which browsers do not allow).
+  // One element that draws a native <button>, usually our <Button>. It becomes
+  // the trigger button itself (not wrapped in another <button>, which browsers
+  // do not allow).
   trigger?: React.ReactElement;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;

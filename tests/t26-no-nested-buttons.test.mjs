@@ -13,6 +13,9 @@
 // another <button> is still open. The HTML check cannot see parts drawn after
 // data loads (table rows), so a source scan also fails when a ...Trigger or
 // ...Close tag without a `render` prop has a <button> or <Button> as its first child.
+// The source scan is a simple text check. It does not see a button that reaches
+// a trigger another way, for example through a prop ({trigger}) or as a second
+// child. For anything that is in the first HTML, the HTML check does.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -89,7 +92,12 @@ test("T26 the page list covers the screens that had the problem", () => {
 for (const page of all) {
   test(`T26 ${page.path} (${page.signedIn ? "signed in" : "signed out"}) has no <button> inside a <button>`, async () => {
     const res = await api(page.path, page.signedIn ? { user: USERS.A } : {});
-    assert.equal(res.status, 200, `${page.path}: ${res.status} ${res.location ?? ""}`);
+    assert.equal(
+      res.status,
+      200,
+      `${page.path} answered ${res.status} ${res.location ?? ""}, not 200, so its HTML was not checked. ` +
+        `If the page is meant to redirect or needs other values in its address, adjust pages() in this test.`
+    );
     if (page.signedIn) {
       // Every dashboard page has the sidebar buttons; none means the page did not render.
       assert.match(res.text, /<button/, `${page.path}: no button in the HTML, so the check would prove nothing`);
@@ -118,7 +126,7 @@ export function triggersWrappingButtons(source) {
       else if (c === ">" && depth === 0) break;
     }
     const attrs = source.slice(m.index + m[0].length, i);
-    if (attrs.trimEnd().endsWith("/") || /\brender\s*=/.test(attrs)) continue;
+    if (attrs.trimEnd().endsWith("/") || /(?:^|\s)render\s*=/.test(attrs)) continue;
     const child = source.slice(i + 1).replace(/^(\s|\{\/\*[\s\S]*?\*\/\})*/, "");
     if (/^<[Bb]utton\b/.test(child)) found.push(`${m[1]} line ${source.slice(0, m.index).split("\n").length}`);
   }
@@ -140,6 +148,8 @@ test("T26 the source scan finds a trigger wrapped around a button and nothing el
   assert.equal(triggersWrappingButtons(`<DialogTrigger render={<Button />}>Add</DialogTrigger>`).length, 0);
   assert.equal(triggersWrappingButtons(`<DropdownMenuTrigger><span className="x">+</span></DropdownMenuTrigger>`).length, 0);
   assert.equal(triggersWrappingButtons(`<SheetTrigger render={<Button variant="ghost" />}><Menu /></SheetTrigger>`).length, 0);
+  // Only a prop named exactly `render` counts, not one that ends in it.
+  assert.equal(triggersWrappingButtons(`<DialogTrigger data-render="x"><Button>Add</Button></DialogTrigger>`).length, 1);
 });
 
 test("T26 no trigger or close part in app/ or components/ wraps a <button> or <Button>", () => {
