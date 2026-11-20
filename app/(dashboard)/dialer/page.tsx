@@ -63,6 +63,8 @@ export default function DialerPage() {
   // True after a refused load, until a load succeeds. With no leads on the
   // screen it shows a sentence instead of "No leads with phone numbers in this status."
   const [loadFailed, setLoadFailed] = useState(false);
+  // True while "Try again" runs the load again.
+  const [retrying, setRetrying] = useState(false);
 
   // Loads the leads to call. On a refusal the leads already on the screen stay.
   const fetchLeads = useCallback(async () => {
@@ -89,6 +91,21 @@ export default function DialerPage() {
 
   const currentLead = leads[currentIndex];
   const showLoadFailed = loadFailed && leads.length === 0;
+  // Runs the same load again. After a refused load the filter may already show
+  // the new value, so picking it again would send nothing.
+  const handleRetry = async () => {
+    setRetrying(true);
+    try {
+      await fetchLeads();
+    } finally {
+      setRetrying(false);
+    }
+  };
+  const retryButton = (
+    <Button variant="outline" size="sm" onClick={handleRetry} disabled={retrying}>
+      Try again
+    </Button>
+  );
 
   const handleCall = (lead: Lead) => {
     window.open(`tel:${lead.phone}`, "_self");
@@ -165,13 +182,10 @@ export default function DialerPage() {
       </div>
 
       {showLoadFailed ? (
-        <Card>
-          <CardContent className="py-8 text-center">
-            <p className="text-muted-foreground">
-              Your leads could not be loaded. Refresh the page to try again.
-            </p>
-          </CardContent>
-        </Card>
+        <div className="flex flex-wrap items-center gap-3 mb-4 text-sm text-muted-foreground">
+          <span>Your leads could not be loaded.</span>
+          {retryButton}
+        </div>
       ) : powerMode && currentLead ? (
         <Card className="mb-6">
           <CardHeader>
@@ -228,6 +242,14 @@ export default function DialerPage() {
             </p>
           </CardContent>
         </Card>
+      )}
+
+      {/* The leads on the screen are from an earlier load. */}
+      {loadFailed && leads.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3 mb-3 text-sm text-muted-foreground">
+          <span>This list could not be updated. It may not match the status chosen above.</span>
+          {retryButton}
+        </div>
       )}
 
       {/* Lead list with click-to-call */}

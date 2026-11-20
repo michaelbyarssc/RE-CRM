@@ -405,6 +405,13 @@ export default function LeadsPage() {
 
   const totalPages = Math.ceil(total / pageSize);
   const showLoadFailed = loadFailed && leads.length === 0;
+  // Runs the same load again (not quiet, so a second refusal says so again).
+  // After a refused load the filter may already show the new value, so picking it again would send nothing.
+  const retryButton = (
+    <Button variant="outline" size="sm" onClick={() => fetchLeads()} disabled={loading}>
+      Try again
+    </Button>
+  );
 
   return (
     <div>
@@ -529,14 +536,23 @@ export default function LeadsPage() {
         )}
       </div>
 
+      {/* The leads on the screen are from an earlier load. */}
+      {loadFailed && leads.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3 mb-3 text-sm text-muted-foreground">
+          <span>This list could not be updated. It may not match the search and filter above.</span>
+          {retryButton}
+        </div>
+      )}
+
       {/* Mobile Card View */}
       <div className="md:hidden space-y-3">
-        {loading ? (
-          <div className="text-center py-8 text-muted-foreground">Loading...</div>
-        ) : showLoadFailed ? (
-          <div className="text-center py-8 text-muted-foreground">
-            Your leads could not be loaded. Refresh the page to try again.
+        {showLoadFailed ? (
+          <div className="flex flex-wrap items-center justify-center gap-3 py-8 text-muted-foreground">
+            <span>Your leads could not be loaded.</span>
+            {retryButton}
           </div>
+        ) : loading ? (
+          <div className="text-center py-8 text-muted-foreground">Loading...</div>
         ) : leads.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">
             <p>No leads found</p>
@@ -665,16 +681,19 @@ export default function LeadsPage() {
             ))}
           </TableHeader>
           <TableBody>
-            {loading ? (
+            {showLoadFailed ? (
+              <TableRow>
+                <TableCell colSpan={columns.length} className="py-8 text-muted-foreground">
+                  <div className="flex flex-wrap items-center justify-center gap-3">
+                    <span>Your leads could not be loaded.</span>
+                    {retryButton}
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : loading ? (
               <TableRow>
                 <TableCell colSpan={columns.length} className="text-center py-8">
                   Loading...
-                </TableCell>
-              </TableRow>
-            ) : showLoadFailed ? (
-              <TableRow>
-                <TableCell colSpan={columns.length} className="text-center py-8 text-muted-foreground">
-                  Your leads could not be loaded. Refresh the page to try again.
                 </TableCell>
               </TableRow>
             ) : leads.length === 0 ? (
