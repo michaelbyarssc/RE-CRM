@@ -105,9 +105,9 @@ With the two variables already set in the shell instead of `.env.local`, `npm ru
 
 Every answer from the app carries headers that tell the browser how to treat it. In plain words, the browser is told:
 
-- Run script files only from this site, and inline scripts only when they carry the page's nonce (a random value made new for every page request). An injected script has no nonce, so it does not run.
+- Run a script file when it comes from this site. Run anything else (an inline script, or a script file from another site) only when its tag carries the page's nonce, a random value made new for every page request. An injected script has no nonce, so it does not run.
 - Load pictures only from this site, from `data:` addresses and from the three OpenStreetMap tile servers the map uses. Load fonts only from this site and from `data:` addresses.
-- Connect only to this site and to the Supabase project (sign-in and sign-out).
+- Connect only to this site and to the Supabase project (to sign in, to sign out and to ask who is signed in).
 - Never show the app in a frame on another site. Load no frames and no plugins. Send forms only to this site.
 - Do not guess file types. Tell other sites only the site's address, never the full page address. In production, use https for the next two years.
 - Keep these browser features off: accelerometer, camera, screen capture, location, gyroscope, magnetometer, microphone, MIDI, payment and USB.
@@ -123,7 +123,7 @@ Rules to keep:
 
 - Every page is rendered for each request (the root layout calls `connection()`), because the nonce is new every time. It must stay that way: a page built ahead of time has no nonce, so the browser would block its scripts.
 - To allow a new outside service, add its host to the right line in `lib/security/csp.mjs` (pictures, fonts or connections). Then update the expected policy in `tests/t30-csp-policy.test.mjs` and `tests/t31-csp-pages.test.mjs`, and run the browser checks (`TEST_BROWSER=1 npm test`).
-- A feature that adds its own script tag must put the nonce on it. In a server component, read it with `(await headers()).get("x-nonce")` (`headers` comes from `next/headers`) and pass it as the `nonce` of the tag, as the Next.js guide for Content Security Policy shows. Script from another site is refused on purpose. The policy has no `'strict-dynamic'`, so a script that other script creates needs the nonce too.
+- A feature that adds an inline script, or a script from another site, must put the nonce on the script tag. In a server component, read it with `(await headers()).get("x-nonce")` (`headers` comes from `next/headers`) and pass it as the `nonce` of the tag, as the Next.js guide for Content Security Policy shows. Without the nonce the browser refuses such a script, on purpose. The policy has no `'strict-dynamic'`: with it, the browser would run any script that other script adds, with no nonce and from any site.
 - In development (`npm run dev`) the script rule also has `'unsafe-eval'`, which the Next.js development tools need. Production does not have it.
 - A dialer that runs in the browser would need the microphone. Turn it back on in the `Permissions-Policy` line in `next.config.ts` then (`microphone=(self)`).
 
